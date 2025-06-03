@@ -1,12 +1,7 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, make_response
 import requests
-import logging
 
 app = Flask(__name__)
-
-# Настройка логирования
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 MOYSKLAD_API_URL = "https://api.moysklad.ru/api/remap/1.2/entity/demand"
 MOYSKLAD_TOKEN = "eba6f80476e5a056ef25f953a117d660be5d5687"
@@ -14,31 +9,38 @@ MOYSKLAD_TOKEN = "eba6f80476e5a056ef25f953a117d660be5d5687"
 @app.route('/api/demand', methods=['GET'])
 def get_demand():
     try:
-        logger.info("Making request to MoySklad API")
-        
         headers = {
             "Authorization": f"Bearer {MOYSKLAD_TOKEN}",
-            "Accept": "application/json",
             "Accept-Encoding": "gzip"
         }
         
-        response = requests.get(
-            MOYSKLAD_API_URL,
-            headers=headers,
-            timeout=10
-        )
+        response = requests.get(MOYSKLAD_API_URL, headers=headers)
+        response.raise_for_status()
         
-        logger.info(f"API response status: {response.status_code}")
-        
-        if response.status_code != 200:
-            error_msg = f"MoySklad API error: {response.status_code} - {response.text}"
-            logger.error(error_msg)
-            return jsonify({"error": error_msg}), 502
-            
+        # Возвращаем JSON для отображения на странице
         return jsonify(response.json())
         
-    except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}", exc_info=True)
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/demand/download', methods=['GET'])
+def download_demand():
+    try:
+        headers = {
+            "Authorization": f"Bearer {MOYSKLAD_TOKEN}",
+            "Accept-Encoding": "gzip"
+        }
+        
+        response = requests.get(MOYSKLAD_API_URL, headers=headers)
+        response.raise_for_status()
+        
+        # Создаём ответ с файлом для скачивания
+        response = make_response(response.text)
+        response.headers['Content-Disposition'] = 'attachment; filename=moysklad_demand.txt'
+        response.headers['Content-type'] = 'text/plain'
+        return response
+        
+    except requests.exceptions.RequestException as e:
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
