@@ -2,20 +2,14 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-# Устанавливаем зависимости системы
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends gcc python3-dev && \
-    rm -rf /var/lib/apt/lists/*
+# Копируем requirements.txt первым для кэширования
+COPY ./backend/requirements.txt .
 
-COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+# Затем копируем остальные файлы
+COPY ./backend .
 
 EXPOSE 5000
-
-# Добавляем healthcheck
-HEALTHCHECK --interval=30s --timeout=3s \
-  CMD curl -f http://localhost:5000/api/health || exit 1
 
 CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--timeout", "120", "app:app"]
