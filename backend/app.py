@@ -11,10 +11,6 @@ logger = logging.getLogger(__name__)
 MOYSKLAD_API_URL = "https://api.moysklad.ru/api/remap/1.2/entity/demand"
 MOYSKLAD_TOKEN = "eba6f80476e5a056ef25f953a117d660be5d5687"
 
-@app.route('/api/health')
-def health_check():
-    return jsonify({"status": "ok"})
-
 @app.route('/api/demand', methods=['GET'])
 def get_demand():
     try:
@@ -22,10 +18,10 @@ def get_demand():
         
         headers = {
             "Authorization": f"Bearer {MOYSKLAD_TOKEN}",
-            "Accept": "application/json"
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip"
         }
         
-        # Увеличиваем таймаут и добавляем проверки
         response = requests.get(
             MOYSKLAD_API_URL,
             headers=headers,
@@ -46,4 +42,4 @@ def get_demand():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000)
