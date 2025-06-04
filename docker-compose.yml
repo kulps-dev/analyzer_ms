@@ -16,7 +16,7 @@ services:
       dockerfile: Dockerfile.backend
     environment:
       - FLASK_ENV=production
-      - DATABASE_URL=postgresql://postgres:password@db:5433/moysklad
+      - DATABASE_URL=postgresql://postgres:password@db:5432/moysklad
     ports:
       - "5000:5000"
     depends_on:
@@ -30,7 +30,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5433:5433"
+      - "5432:5432"
 
 volumes:
   postgres_data:

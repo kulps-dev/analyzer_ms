@@ -9,7 +9,7 @@ app = Flask(__name__)
 CORS(app)
 
 # Конфигурация БД
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:password@db:5433/moysklad'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:password@db:5432/moysklad'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
 
