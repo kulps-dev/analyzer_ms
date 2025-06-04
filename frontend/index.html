@@ -1,19 +1,71 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MoySklad API</title>
-    <link rel="stylesheet" href="./styles.css">
+    <title>Анализ отгрузок | MoySklad</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+
 </head>
 <body>
     <div class="container">
-        <button id="apiButton">Get Demand Data from MoySklad</button>
-        <div id="response"></div>
+        <h1><i class="fas fa-chart-line"></i> Анализ отгрузок из MoySklad</h1>
         
-        <button id="processedDataButton">Get Processed Data</button>
-        <div id="processedResponse"></div>
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-title">Всего отгрузок</div>
+                <div class="stat-value" id="totalShipments">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">Общая сумма</div>
+                <div class="stat-value" id="totalAmount">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">Средний чек</div>
+                <div class="stat-value" id="averageCheck">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">Популярный товар</div>
+                <div class="stat-value" id="popularProduct">-</div>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <div class="date-filter">
+                <div class="date-input">
+                    <label for="startDate">Дата начала</label>
+                    <input type="date" id="startDate">
+                </div>
+                <div class="date-input">
+                    <label for="endDate">Дата окончания</label>
+                    <input type="date" id="endDate">
+                </div>
+            </div>
+            
+            <div class="btn-group">
+                <button id="apiButton" class="btn btn-primary">
+                    <i class="fas fa-sync-alt"></i> Загрузить данные
+                </button>
+                <button id="downloadExcel" class="btn btn-success">
+                    <i class="fas fa-file-excel"></i> Скачать Excel
+                </button>
+                <button id="uploadToSheets" class="btn btn-danger">
+                    <i class="fab fa-google"></i> Загрузить в Google Sheets
+                </button>
+            </div>
+        </div>
+        
+        <div class="response-container">
+            <div class="response-header">
+                <span>Результаты анализа</span>
+                <span id="lastUpdate"></span>
+            </div>
+            <div class="response-content">
+                <pre id="response">Данные по отгрузкам будут отображены здесь...</pre>
+            </div>
+        </div>
     </div>
-    <script src="./script.js"></script>
+
 </body>
 </html>
