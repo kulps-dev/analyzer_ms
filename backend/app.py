@@ -34,7 +34,8 @@ def get_demand():
     try:
         headers = {
             "Authorization": f"Bearer {MOYSKLAD_TOKEN}",
-            "Accept-Encoding": "gzip"
+            "Accept-Encoding": "gzip",
+            "Content-Type": "application/json"
         }
         response = requests.get(MOYSKLAD_API_URL, headers=headers)
         response.raise_for_status()
