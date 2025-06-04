@@ -14,7 +14,7 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
 
 MOYSKLAD_API_URL = "https://api.moysklad.ru/api/remap/1.2/entity/demand"
-MOYSKLAD_TOKEN = "your_token_here"
+MOYSKLAD_TOKEN = "eba6f80476e5a056ef25f953a117d660be5d5687"
 
 def process_data(raw_data):
     """Пример обработки данных"""
@@ -34,8 +34,7 @@ def get_demand():
     try:
         headers = {
             "Authorization": f"Bearer {MOYSKLAD_TOKEN}",
-            "Accept-Encoding": "gzip",
-            "Content-Type": "application/json"
+            "Accept-Encoding": "gzip"
         }
         response = requests.get(MOYSKLAD_API_URL, headers=headers)
         response.raise_for_status()
