@@ -3,71 +3,81 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Анализ отгрузок | MoySklad</title>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    <link rel="stylesheet" href="./styles.css">
-
+    <title>Анализатор Отгрузок МойСклад</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="./styles/moysklad.css">
 </head>
 <body>
     <div class="container">
-        <h1><i class="fas fa-chart-line"></i> Анализ отгрузок из MoySklad</h1>
-        
-        <div class="stats">
-            <div class="stat-card">
-                <div class="stat-title">Всего отгрузок</div>
-                <div class="stat-value" id="totalShipments">-</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-title">Общая сумма</div>
-                <div class="stat-value" id="totalAmount">-</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-title">Средний чек</div>
-                <div class="stat-value" id="averageCheck">-</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-title">Популярный товар</div>
-                <div class="stat-value" id="popularProduct">-</div>
-            </div>
-        </div>
-        
-        <div class="controls">
-            <div class="date-filter">
-                <div class="date-input">
-                    <label for="startDate">Дата начала</label>
-                    <input type="date" id="startDate">
+        <header class="animate__animated animate__fadeInDown">
+            <a href="index.html" class="back-button">
+                <i class="fas fa-arrow-left"></i> Назад
+            </a>
+            <h1>Анализатор Отгрузок МойСклад</h1>
+            <p class="header-description">Мощный инструмент для экспорта данных о продажах и отгрузках</p>
+        </header>
+
+        <div class="card filters-card animate__animated animate__fadeIn">
+            <h2><i class="fas fa-filter"></i> Фильтры</h2>
+            <div class="filters-row">
+                <div class="form-group">
+                    <label for="project-filter"><i class="fas fa-project-diagram"></i> Проект:</label>
+                    <select id="project-filter" class="form-control">
+                        <option value="">Все проекты</option>
+                        <option value="project1">Проект А</option>
+                        <option value="project2">Проект Б</option>
+                        <option value="project3">Проект В</option>
+                    </select>
                 </div>
-                <div class="date-input">
-                    <label for="endDate">Дата окончания</label>
-                    <input type="date" id="endDate">
+                <div class="form-group">
+                    <label for="channel-filter"><i class="fas fa-store"></i> Канал продаж:</label>
+                    <select id="channel-filter" class="form-control">
+                        <option value="">Все каналы</option>
+                        <option value="online">Онлайн</option>
+                        <option value="retail">Розница</option>
+                        <option value="wholesale">Опт</option>
+                    </select>
                 </div>
             </div>
-            
-            <div class="btn-group">
-                <button id="apiButton" class="btn btn-primary">
-                    <i class="fas fa-sync-alt"></i> Загрузить данные
-                </button>
-                <button id="downloadExcel" class="btn btn-success">
-                    <i class="fas fa-file-excel"></i> Скачать Excel
-                </button>
-                <button id="uploadToSheets" class="btn btn-danger">
-                    <i class="fab fa-google"></i> Загрузить в Google Sheets
-                </button>
+        </div>
+
+        <div class="card dates-card animate__animated animate__fadeIn">
+            <h2><i class="far fa-calendar-alt"></i> Период анализа</h2>
+            <div class="filters-row">
+                <div class="form-group">
+                    <label for="start-date"><i class="fas fa-calendar-day"></i> Дата начала:</label>
+                    <input type="text" id="start-date" class="form-control datepicker" placeholder="Выберите дату">
+                </div>
+                <div class="form-group">
+                    <label for="end-date"><i class="fas fa-calendar-day"></i> Дата окончания:</label>
+                    <input type="text" id="end-date" class="form-control datepicker" placeholder="Выберите дату">
+                </div>
             </div>
         </div>
-        
-        <div class="response-container">
-            <div class="response-header">
-                <span>Результаты анализа</span>
-                <span id="lastUpdate"></span>
-            </div>
-            <div class="response-content">
-                <pre id="response">Данные по отгрузкам будут отображены здесь...</pre>
-            </div>
+
+        <div class="actions">
+            <button id="export-excel-btn" class="btn btn-primary">
+                <i class="fas fa-file-excel"></i> Скачать Excel
+            </button>
+            <button id="export-gsheet-btn" class="btn btn-success">
+                <i class="fab fa-google"></i> Отправить в Google Sheets
+            </button>
+        </div>
+        <button id="export-txt-btn" class="btn btn-primary">
+            <i class="fas fa-file-alt"></i> Скачать TXT
+        </button>
+
+        <div class="status-bar" id="status-bar">
+            <i class="fas fa-check-circle"></i> Готов к работе
         </div>
     </div>
-    <script src="./script.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/ru.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="./scripts/moysklad.js"></script>
 
 </body>
 </html>
