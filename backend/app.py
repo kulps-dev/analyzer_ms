@@ -1,37 +1,33 @@
-from flask import Flask, jsonify, make_response
+from flask import Flask, jsonify
 import requests
 from flask_cors import CORS
-import json
-import os
+from models import db, Demand
 from datetime import datetime
+import json
 
 app = Flask(__name__)
 CORS(app)
 
+# Конфигурация БД
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:password@db:5432/moysklad'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db.init_app(app)
+
 MOYSKLAD_API_URL = "https://api.moysklad.ru/api/remap/1.2/entity/demand"
-MOYSKLAD_TOKEN = "eba6f80476e5a056ef25f953a117d660be5d5687"
-DATA_DIR = "/data"  # Директория для сохранения данных
+MOYSKLAD_TOKEN = "your_token_here"
 
-# Создаем директорию, если ее нет
-os.makedirs(DATA_DIR, exist_ok=True)
-
-def save_data_to_file(data):
-    """Сохраняет данные в файл с временной меткой"""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"{DATA_DIR}/moysklad_data_{timestamp}.json"
-    with open(filename, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    return filename
-
-def process_data(data):
-    """Обработка данных (пример)"""
-    # Здесь можно добавить любую логику обработки
-    processed = {
-        "total_orders": len(data.get("rows", [])),
-        "first_order": data.get("rows", [{}])[0] if data.get("rows") else None,
-        "original_data_size": len(json.dumps(data))
+def process_data(raw_data):
+    """Пример обработки данных"""
+    rows = raw_data.get('rows', [])
+    total = len(rows)
+    sum_amount = sum(row.get('sum', 0) for row in rows)
+    
+    return {
+        'total_demands': total,
+        'total_amount': sum_amount,
+        'first_demand_date': rows[0].get('created') if total > 0 else None,
+        'analysis_date': datetime.utcnow().isoformat()
     }
-    return processed
 
 @app.route('/api/demand', methods=['GET'])
 def get_demand():
@@ -44,45 +40,56 @@ def get_demand():
         response.raise_for_status()
         data = response.json()
         
-        # Сохраняем сырые данные
-        save_data_to_file(data)
+        # Сохраняем в БД
+        for item in data.get('rows', []):
+            existing = Demand.query.filter_by(moysklad_id=item['id']).first()
+            if not existing:
+                processed = process_data({'rows': [item]})
+                new_demand = Demand(
+                    moysklad_id=item['id'],
+                    data=item,
+                    processed=processed
+                )
+                db.session.add(new_demand)
         
-        # Обрабатываем данные
-        processed_data = process_data(data)
+        db.session.commit()
+        
+        # Получаем общую статистику
+        total_in_db = Demand.query.count()
         
         return jsonify({
             "status": "success",
-            "original_data": data,
-            "processed_data": processed_data
-        })
-        
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/processed-data', methods=['GET'])
-def get_processed_data():
-    """Новый endpoint для получения обработанных данных"""
-    try:
-        # Получаем список всех сохраненных файлов
-        files = sorted([f for f in os.listdir(DATA_DIR) if f.startswith('moysklad_data_')])
-        if not files:
-            return jsonify({"error": "No data available"}), 404
-            
-        # Берем последний файл
-        latest_file = files[-1]
-        with open(os.path.join(DATA_DIR, latest_file), 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            
-        # Обрабатываем данные
-        processed_data = process_data(data)
-        
-        return jsonify({
-            "filename": latest_file,
-            "processed_data": processed_data
+            "saved_items": len(data.get('rows', [])),
+            "total_in_database": total_in_db,
+            "last_processed": datetime.utcnow().isoformat()
         })
         
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route('/api/processed-data', methods=['GET'])
+def get_processed_data():
+    """Получение агрегированных данных"""
+    try:
+        total_demands = Demand.query.count()
+        last_demand = Demand.query.order_by(Demand.created.desc()).first()
+        
+        if not last_demand:
+            return jsonify({"error": "No data available"}), 404
+            
+        return jsonify({
+            "total_demands": total_demands,
+            "last_demand_date": last_demand.created.isoformat(),
+            "sample_processed_data": last_demand.processed
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.before_first_request
+def create_tables():
+    """Создание таблиц при первом запросе"""
+    db.create_all()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
