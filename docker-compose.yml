@@ -18,3 +18,8 @@ services:
       - FLASK_ENV=production
     ports:
       - "5000:5000"
+    volumes:
+      - moysklad_data:/data  # Добавляем volume для данных
+
+volumes:
+  moysklad_data:  # Объявляем volume
