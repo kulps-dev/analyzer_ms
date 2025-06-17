@@ -48,20 +48,31 @@ document.addEventListener('DOMContentLoaded', function() {
             const project = document.getElementById('project-filter').value;
             const channel = document.getElementById('channel-filter').value;
             
-            // Здесь должен быть реальный запрос к API
-            // Это имитация загрузки для демонстрации
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            const response = await fetch('/api/export/excel', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    start_date: startDate,
+                    end_date: endDate,
+                    project: project || null,
+                    channel: channel || null
+                })
+            });
             
-            // В реальном приложении:
-            // const response = await fetch(`/api/export/excel?startDate=${startDate}&endDate=${endDate}&project=${project}&channel=${channel}`);
-            // if (!response.ok) throw new Error(`Ошибка HTTP! Статус: ${response.status}`);
-            // const blob = await response.blob();
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Ошибка сервера');
+            }
             
-            // Для демонстрации создаем пустой файл
+            const result = await response.json();
+            
+            // Создаем Excel файл на клиенте
             const workbook = XLSX.utils.book_new();
-            const worksheet = XLSX.utils.json_to_sheet([{test: "data"}]);
+            const worksheet = XLSX.utils.json_to_sheet(result.data);
             XLSX.utils.book_append_sheet(workbook, worksheet, "Отгрузки");
-            XLSX.writeFile(workbook, `отгрузки_${startDate}_${endDate}.xlsx`);
+            XLSX.writeFile(workbook, result.filename);
             
             updateStatus('Excel файл успешно создан и скачан!', 'success');
         } catch (error) {
@@ -88,71 +99,32 @@ document.addEventListener('DOMContentLoaded', function() {
             const project = document.getElementById('project-filter').value;
             const channel = document.getElementById('channel-filter').value;
             
-            // Имитация запроса к API
-            await new Promise(resolve => setTimeout(resolve, 3000));
+            const response = await fetch('/api/export/google-sheets', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    start_date: startDate,
+                    end_date: endDate,
+                    project: project || null,
+                    channel: channel || null
+                })
+            });
             
-            // В реальном приложении:
-            // const response = await fetch(`/api/export/google-sheets`, {
-            //     method: 'POST',
-            //     headers: {'Content-Type': 'application/json'},
-            //     body: JSON.stringify({startDate, endDate, project, channel})
-            // });
-            // if (!response.ok) throw new Error(`Ошибка HTTP! Статус: ${response.status}`);
-            // const result = await response.json();
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Ошибка сервера');
+            }
             
-            // Имитация успешного ответа
-            const result = { url: "https://docs.google.com/spreadsheets/d/example" };
+            const result = await response.json();
             
             updateStatus(`Данные успешно отправлены в <a href="${result.url}" target="_blank" style="color: white; text-decoration: underline;">Google Sheets</a>`, 'success');
-            
-            // Показываем уведомление
             showAlert('Данные успешно загружены в Google Sheets!', 'success');
         } catch (error) {
             console.error('Ошибка загрузки:', error);
             updateStatus(`Ошибка: ${error.message}`, 'error');
             showAlert(`Ошибка: ${error.message}`, 'error');
-        } finally {
-            button.innerHTML = originalText;
-            button.disabled = false;
-        }
-    });
-
-    // Обработчик для кнопки экспорта в TXT
-    document.getElementById('export-txt-btn').addEventListener('click', async () => {
-        const button = document.getElementById('export-txt-btn');
-        const originalText = button.innerHTML;
-        button.innerHTML = '<i class="fas fa-spinner fa-pulse"></i> Создание TXT...';
-        button.disabled = true;
-        
-        updateStatus('Создание TXT файла...', 'loading');
-        
-        try {
-            const startDate = document.getElementById('start-date').value;
-            const endDate = document.getElementById('end-date').value;
-            const project = document.getElementById('project-filter').value;
-            const channel = document.getElementById('channel-filter').value;
-            
-            // Имитация запроса к API
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            
-            // Создаем тестовые данные
-            const data = `Отчет по отгрузкам\nПериод: ${startDate} - ${endDate}\nПроект: ${project || 'Все'}\nКанал: ${channel || 'Все'}\n\nДанные успешно экспортированы`;
-            
-            // Создаем и скачиваем файл
-            const blob = new Blob([data], {type: 'text/plain'});
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `отгрузки_${startDate}_${endDate}.txt`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-            
-            updateStatus('TXT файл успешно создан и скачан!', 'success');
-        } catch (error) {
-            console.error('Ошибка экспорта:', error);
-            updateStatus(`Ошибка: ${error.message}`, 'error');
         } finally {
             button.innerHTML = originalText;
             button.disabled = false;
