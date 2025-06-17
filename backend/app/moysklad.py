@@ -2,7 +2,6 @@ import requests
 import io
 from openpyxl import Workbook
 from datetime import datetime
-from urllib.parse import quote  # <-- Добавляем импорт
 
 class MoyskladAPI:
     def __init__(self, token: str):
@@ -17,13 +16,17 @@ class MoyskladAPI:
         """Получить отгрузки за период с точным временем"""
         url = f"{self.base_url}/entity/demand"
         
-        start_with_time = f"{start_date} 00:00:00" if " " not in start_date else start_date
-        end_with_time = f"{end_date} 23:59:59" if " " not in end_date else end_date
+        # Форматируем даты в ISO 8601 с 'T' разделителем
+        start_with_time = f"{start_date}T00:00:00" if "T" not in start_date else start_date
+        end_with_time = f"{end_date}T23:59:59" if "T" not in end_date else end_date
         
         params = {
-            "filter": f"moment>={start_with_time};moment<={end_with_time}",  # <- Без quote!
+            "filter": f"moment>={start_with_time};moment<={end_with_time}",
             "limit": 1000
         }
+        
+        # Для отладки можно вывести URL
+        print(f"Request URL: {url}?filter={params['filter']}&limit=1000")
         
         response = requests.get(url, headers=self.headers, params=params)
         response.raise_for_status()
@@ -33,19 +36,16 @@ class MoyskladAPI:
         """Сформировать Excel файл с отгрузками за период"""
         demands = self.get_demands(start_date, end_date)
         
-        # Создаем Excel файл
         wb = Workbook()
         ws = wb.active
         ws.title = "Отгрузки"
         
-        # Заголовки
         headers = [
             "ID", "Номер", "Дата", "Контрагент", 
             "Сумма", "Статус", "Комментарий"
         ]
         ws.append(headers)
         
-        # Данные
         for demand in demands:
             row = [
                 demand.get("id", ""),
@@ -58,7 +58,6 @@ class MoyskladAPI:
             ]
             ws.append(row)
         
-        # Сохраняем в буфер
         buffer = io.BytesIO()
         wb.save(buffer)
         buffer.seek(0)
