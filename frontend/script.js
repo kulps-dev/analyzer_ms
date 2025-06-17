@@ -22,8 +22,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    start_date: "2025-03-01",  // Формат YYYY-MM-DD
-                    end_date: "2025-06-17"      // Время добавит бэкенд
+                    start_date: startDate + " 00:00:00",  // Добавляем время
+                    end_date: endDate + " 23:59:59"       // Добавляем время
                 })
             });
 
