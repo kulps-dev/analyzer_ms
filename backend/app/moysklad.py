@@ -7,7 +7,7 @@ class MoyskladAPI:
     def __init__(self, token: str):
         self.base_url = "https://api.moysklad.ru/api/remap/1.2"
         self.headers = {
-            "Authorization": f"Bearer {token}",
+            "Authorization": f"Basic {token}",
             "Accept-Encoding": "gzip",
             "Accept": "application/json"
         }
