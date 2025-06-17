@@ -6,6 +6,5 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "80:80"  # Пробрасываем порт 80 контейнера на порт 80 хоста
-    restart: unless-stopped  # Автоматически перезапускать контейнер при падении
-
+      - "80:80"
+    restart: unless-stopped
