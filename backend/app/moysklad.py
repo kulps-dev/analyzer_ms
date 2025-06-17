@@ -21,8 +21,8 @@ class MoyskladAPI:
         end_date = end_date.split(' ')[0].split('T')[0]
         
         # Форматируем даты в ISO 8601 с 'T' разделителем
-        start_with_time = f"{start_date}T00:00:00"
-        end_with_time = f"{end_date}T23:59:59"
+        start_with_time = f"{start_date} 00:00:00"
+        end_with_time = f"{end_date} 23:59:59"
         
         params = {
             "filter": f"moment>={start_with_time};moment<={end_with_time}",
