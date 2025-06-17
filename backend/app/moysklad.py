@@ -17,16 +17,11 @@ class MoyskladAPI:
         """Получить отгрузки за период с точным временем"""
         url = f"{self.base_url}/entity/demand"
         
-        # Форматируем даты с временем (если время не указано, добавляем 00:00:00 и 23:59:59)
         start_with_time = f"{start_date} 00:00:00" if " " not in start_date else start_date
         end_with_time = f"{end_date} 23:59:59" if " " not in end_date else end_date
         
-        # Кодируем фильтр в URL-формат
-        filter_str = f"moment>={start_with_time};moment<={end_with_time}"
-        encoded_filter = quote(filter_str)  # <-- Кодируем специальные символы
-        
         params = {
-            "filter": encoded_filter,  # <-- Используем закодированный фильтр
+            "filter": f"moment>={start_with_time};moment<={end_with_time}",  # <- Без quote!
             "limit": 1000
         }
         
