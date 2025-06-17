@@ -2,6 +2,7 @@ import requests
 import io
 from openpyxl import Workbook
 from datetime import datetime
+from urllib.parse import quote  # <-- Добавляем импорт
 
 class MoyskladAPI:
     def __init__(self, token: str):
@@ -20,9 +21,13 @@ class MoyskladAPI:
         start_with_time = f"{start_date} 00:00:00" if " " not in start_date else start_date
         end_with_time = f"{end_date} 23:59:59" if " " not in end_date else end_date
         
+        # Кодируем фильтр в URL-формат
+        filter_str = f"moment>={start_with_time};moment<={end_with_time}"
+        encoded_filter = quote(filter_str)  # <-- Кодируем специальные символы
+        
         params = {
-            "filter": f"moment>={start_with_time};moment<={end_with_time}",
-            "limit": 1000  # Добавляем пагинацию
+            "filter": encoded_filter,  # <-- Используем закодированный фильтр
+            "limit": 1000
         }
         
         response = requests.get(url, headers=self.headers, params=params)
