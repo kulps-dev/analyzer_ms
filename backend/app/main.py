@@ -15,7 +15,7 @@ app.add_middleware(
 )
 
 # Инициализация API МойСклад
-moysklad = MoyskladAPI(token="eba6f80476e5a056ef25f953a117d660be5d5687")
+moysklad = MoyskladAPI(token="2e61e26f0613cf33fab5f31cf105302aa2d607c3")
 
 class DateRange(BaseModel):
     start_date: str
