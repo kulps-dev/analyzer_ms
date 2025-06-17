@@ -16,17 +16,20 @@ class MoyskladAPI:
         """Получить отгрузки за период с точным временем"""
         url = f"{self.base_url}/entity/demand"
         
+        # Удаляем возможное существующее время
+        start_date = start_date.split(' ')[0].split('T')[0]
+        end_date = end_date.split(' ')[0].split('T')[0]
+        
         # Форматируем даты в ISO 8601 с 'T' разделителем
-        start_with_time = f"{start_date}T00:00:00" if "T" not in start_date else start_date
-        end_with_time = f"{end_date}T23:59:59" if "T" not in end_date else end_date
+        start_with_time = f"{start_date}T00:00:00"
+        end_with_time = f"{end_date}T23:59:59"
         
         params = {
             "filter": f"moment>={start_with_time};moment<={end_with_time}",
             "limit": 1000
         }
         
-        # Для отладки можно вывести URL
-        print(f"Request URL: {url}?filter={params['filter']}&limit=1000")
+        print(f"Request URL: {url}?{requests.models.RequestEncodingMixin._encode_params(params)}")  # Для отладки
         
         response = requests.get(url, headers=self.headers, params=params)
         response.raise_for_status()
