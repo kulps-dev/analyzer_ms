@@ -1,6 +1,15 @@
 version: '3.8'
 
 services:
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+
   frontend:
     build:
       context: .
@@ -8,3 +17,5 @@ services:
     ports:
       - "80:80"
     restart: unless-stopped
+    depends_on:
+      - backend
