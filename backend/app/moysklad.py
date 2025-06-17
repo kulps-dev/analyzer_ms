@@ -16,11 +16,17 @@ class MoyskladAPI:
         """Получить список отгрузок за период"""
         url = f"{self.base_url}/entity/demand"
         params = {
-            "filter": f"moment>={start_date} 00:00:00;moment<={end_date} 23:59:59"
+            "filter": f"moment>={start_date};moment<={end_date}"
+            # Убрал время, если API его не принимает
         }
         
-        response = requests.get(url, headers=self.headers, params=params)
-        response.raise_for_status()
+        response = requests.get(
+            url,
+            headers=self.headers,
+            params=params
+        )
+        print(response.url)  # Для дебага (посмотри URL в консоли)
+        response.raise_for_status()  # Выбросит исключение при ошибке
         return response.json()["rows"]
 
     def get_demands_excel(self, start_date: str, end_date: str):
