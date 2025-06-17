@@ -6,34 +6,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "80:80"
-    depends_on:
-      - backend
-    networks:
-      - moysklad-net
+      - "80:80"  # Пробрасываем порт 80 контейнера на порт 80 хоста
+    restart: unless-stopped  # Автоматически перезапускать контейнер при падении
 
-  backend:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
-    environment:
-      - FLASK_ENV=production
-      - DB_HOST=master.fbc23d95-9eee-4558-aa58-e37a80b95acd.c.dbaas.selcloud.ru
-      - DB_PORT=5432
-      - DB_NAME=Moysklad_demand  # Замените на ваше имя БД
-      - DB_USER=louella  # Замените на ваше имя пользователя
-      - DB_PASSWORD=XBcMJoEO1ljb  # Замените на ваш пароль
-      - DB_SSL_MODE=verify-ca
-      - DB_ROOT_CERT=/app/root.crt
-      - MOYSKLAD_TOKEN=eba6f80476e5a056ef25f953a117d660be5d568
-    ports:
-      - "5000:5000"
-    volumes:
-      - ./backend/root.crt:/app/root.crt:ro
-    networks:
-      - moysklad-net
-    restart: unless-stopped
-
-networks:
-  moysklad-net:
-    driver: bridge
+# Убрал сеть, так как бэкенда нет и она не нужна
