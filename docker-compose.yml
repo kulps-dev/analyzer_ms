@@ -18,14 +18,18 @@ services:
       dockerfile: Dockerfile.backend
     environment:
       - FLASK_ENV=production
-      - DB_HOST=ваш_хост_БД
+      - DB_HOST=master.fbc23d95-9eee-4558-aa58-e37a80b95acd.c.dbaas.selcloud.ru
       - DB_PORT=5432
-      - DB_NAME=moysklad
-      - DB_USER=ваш_пользователь_БД
-      - DB_PASSWORD=ваш_пароль_БД
+      - DB_NAME=moysklad  # Замените на ваше имя БД
+      - DB_USER=<database_user_name>  # Замените на ваше имя пользователя
+      - DB_PASSWORD=<your_password>  # Замените на ваш пароль
+      - DB_SSL_MODE=verify-ca
+      - DB_ROOT_CERT=/app/root.crt
       - MOYSKLAD_TOKEN=eba6f80476e5a056ef25f953a117d660be5d568
     ports:
       - "5000:5000"
+    volumes:
+      - ./backend/root.crt:/app/root.crt:ro
     networks:
       - moysklad-net
     restart: unless-stopped
