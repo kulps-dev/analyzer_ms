@@ -20,10 +20,7 @@ class MoyskladAPI:
         start_date = start_date.split(' ')[0].split('T')[0]
         end_date = end_date.split(' ')[0].split('T')[0]
         
-        # Вариант 1: Формат с 'T' (ISO 8601)
-        #filter_str = f"moment>={start_date}T00:00:00;moment<={end_date}T23:59:59"
-        
-        # Вариант 2: Формат с пробелом (тоже работает)
+        #Формат с пробелом
         filter_str = f"moment>={start_date} 00:00:00;moment<={end_date} 23:59:59"
         
         params = {

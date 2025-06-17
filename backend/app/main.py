@@ -1,18 +1,23 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import psycopg2
 from .moysklad import MoyskladAPI
+from datetime import datetime
+import os
 
 app = FastAPI()
 
-# Настройка CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Настройки базы данных
+DB_CONFIG = {
+    "host": "master.1335b4f0-3d8e-4b7e-a54e-d31395e672ca.c.dbaas.selcloud.ru",
+    "dbname": "Moysklad_demand",
+    "user": "louella",
+    "password": "XBcMJoEO1ljb",
+    "port": 5432,
+    "sslmode": "verify-ca",
+    "sslrootcert": "/root/.postgresql/root.crt"  # Абсолютный путь
+}
 
 # Инициализация API МойСклад
 moysklad = MoyskladAPI(token="2e61e26f0613cf33fab5f31cf105302aa2d607c3")
@@ -21,19 +26,108 @@ class DateRange(BaseModel):
     start_date: str
     end_date: str
 
-@app.post("/export/excel")
+def get_db_connection():
+    return psycopg2.connect(**DB_CONFIG)
+
+def init_db():
+    """Инициализация таблицы в базе данных"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS demands (
+                id VARCHAR(255) PRIMARY KEY,
+                number VARCHAR(50),
+                date TIMESTAMP,
+                counterparty VARCHAR(255),
+                amount NUMERIC(10, 2),
+                status VARCHAR(100),
+                comment TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
+    except Exception as e:
+        print(f"Ошибка при инициализации БД: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+# Инициализация БД при старте
+init_db()
+
+@app.post("/api/save-to-db")
+async def save_to_db(date_range: DateRange):
+    try:
+        demands = moysklad.get_demands(date_range.start_date, date_range.end_date)
+        
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        for demand in demands:
+            cur.execute("""
+                INSERT INTO demands (id, number, date, counterparty, amount, status, comment)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (id) DO UPDATE SET
+                    number = EXCLUDED.number,
+                    date = EXCLUDED.date,
+                    counterparty = EXCLUDED.counterparty,
+                    amount = EXCLUDED.amount,
+                    status = EXCLUDED.status,
+                    comment = EXCLUDED.comment
+            """, (
+                demand.get("id", ""),
+                demand.get("name", ""),
+                demand.get("moment", ""),
+                demand.get("agent", {}).get("name", ""),
+                demand.get("sum", 0) / 100,
+                demand.get("state", {}).get("name", ""),
+                demand.get("description", "")
+            ))
+        
+        conn.commit()
+        return {"message": f"Успешно сохранено {len(demands)} записей"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+@app.post("/api/export/excel")
 async def export_excel(date_range: DateRange):
     try:
-        # Получаем данные из МойСклад
-        excel_data = moysklad.get_demands_excel(
-            start_date=date_range.start_date,
-            end_date=date_range.end_date
-        )
+        conn = get_db_connection()
+        cur = conn.cursor()
         
-        # Возвращаем файл Excel
+        cur.execute("""
+            SELECT id, number, date, counterparty, amount, status, comment
+            FROM demands
+            WHERE date BETWEEN %s AND %s
+        """, (date_range.start_date, date_range.end_date))
+        
+        rows = cur.fetchall()
+        
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Отгрузки"
+        
+        headers = ["ID", "Номер", "Дата", "Контрагент", "Сумма", "Статус", "Комментарий"]
+        ws.append(headers)
+        
+        for row in rows:
+            ws.append(row)
+        
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+        
         return {
-            "file": excel_data,
+            "file": buffer.read().hex(),
             "filename": f"demands_{date_range.start_date}_{date_range.end_date}.xlsx"
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()

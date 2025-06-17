@@ -3,3 +3,4 @@ uvicorn>=0.15.0
 requests>=2.26.0
 openpyxl>=3.0.9
 python-multipart>=0.0.5
+psycopg2-binary>=2.9.3
