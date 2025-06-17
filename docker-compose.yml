@@ -7,3 +7,20 @@ services:
       dockerfile: Dockerfile
     ports:
       - "80:80"
+    depends_on:
+      - backend
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    environment:
+      - FLASK_ENV=production
+      - DB_HOST=your-db-host
+      - DB_PORT=5432
+      - DB_NAME=moysklad
+      - DB_USER=your-db-user
+      - DB_PASSWORD=your-db-password
+      - MOYSKLAD_TOKEN=eba6f80476e5a056ef25f953a117d660be5d568
+    ports:
+      - "5000:5000"
