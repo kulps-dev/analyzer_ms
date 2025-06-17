@@ -13,23 +13,25 @@ class MoyskladAPI:
         }
 
     def get_demands(self, start_date: str, end_date: str):
-        """Получить отгрузки за период с точным временем"""
+        """Получить отгрузки за период"""
         url = f"{self.base_url}/entity/demand"
         
-        # Удаляем возможное существующее время
+        # Убедимся, что даты в формате YYYY-MM-DD (без времени)
         start_date = start_date.split(' ')[0].split('T')[0]
         end_date = end_date.split(' ')[0].split('T')[0]
         
-        # Форматируем даты в ISO 8601 с 'T' разделителем
-        start_with_time = f"{start_date} 00:00:00"
-        end_with_time = f"{end_date} 23:59:59"
+        # Вариант 1: Формат с 'T' (ISO 8601)
+        filter_str = f"moment>={start_date}T00:00:00;moment<={end_date}T23:59:59"
+        
+        # Вариант 2: Формат с пробелом (тоже работает)
+        # filter_str = f"moment>={start_date} 00:00:00;moment<={end_date} 23:59:59"
         
         params = {
-            "filter": f"moment>={start_with_time};moment<={end_with_time}",
+            "filter": filter_str,
             "limit": 1000
         }
         
-        print(f"Request URL: {url}?{requests.models.RequestEncodingMixin._encode_params(params)}")  # Для отладки
+        print(f"Отправляемый запрос: {url}?{requests.models.RequestEncodingMixin._encode_params(params)}")
         
         response = requests.get(url, headers=self.headers, params=params)
         response.raise_for_status()
