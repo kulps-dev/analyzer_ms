@@ -10,8 +10,8 @@ app = FastAPI()
 
 # Настройки базы данных
 DB_CONFIG = {
-    "host": "master.1335b4f0-3d8e-4b7e-a54e-d31395e672ca.c.dbaas.selcloud.ru",
-    "dbname": "Moysklad_demand",
+    "host": "master.fbc23d95-9eee-4558-aa58-e37a80b95acd.c.dbaas.selcloud.ru",
+    "dbname": "Winter",
     "user": "louella",
     "password": "XBcMJoEO1ljb",
     "port": 5432,
