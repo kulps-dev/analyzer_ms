@@ -134,3 +134,20 @@ async def export_excel(date_range: DateRange):
     finally:
         if conn:
             conn.close()
+@app.get("/api/get-demands")
+async def get_demands(limit: int = 10):
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM demands LIMIT %s", (limit,))
+            columns = [desc[0] for desc in cur.description]
+            return {
+                "columns": columns,
+                "data": cur.fetchall()
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
