@@ -7,26 +7,26 @@ class MoyskladAPI:
     def __init__(self, token: str):
         self.base_url = "https://api.moysklad.ru/api/remap/1.2"
         self.headers = {
-            "Authorization": f"Basic {token}",
+            "Authorization": f"Bearer {token}",
             "Accept-Encoding": "gzip",
             "Accept": "application/json"
         }
 
     def get_demands(self, start_date: str, end_date: str):
-        """Получить список отгрузок за период"""
+        """Получить отгрузки за период с точным временем"""
         url = f"{self.base_url}/entity/demand"
+        
+        # Форматируем даты с временем (если время не указано, добавляем 00:00:00 и 23:59:59)
+        start_with_time = f"{start_date} 00:00:00" if " " not in start_date else start_date
+        end_with_time = f"{end_date} 23:59:59" if " " not in end_date else end_date
+        
         params = {
-            "filter": f"moment>={start_date};moment<={end_date}"
-            # Убрал время, если API его не принимает
+            "filter": f"moment>={start_with_time};moment<={end_with_time}",
+            "limit": 1000  # Добавляем пагинацию
         }
         
-        response = requests.get(
-            url,
-            headers=self.headers,
-            params=params
-        )
-        print(response.url)  # Для дебага (посмотри URL в консоли)
-        response.raise_for_status()  # Выбросит исключение при ошибке
+        response = requests.get(url, headers=self.headers, params=params)
+        response.raise_for_status()
         return response.json()["rows"]
 
     def get_demands_excel(self, start_date: str, end_date: str):
