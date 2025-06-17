@@ -9,7 +9,7 @@ class MoyskladAPI:
         self.headers = {
             "Authorization": f"Bearer {token}",
             "Accept-Encoding": "gzip",
-            "Accept": "application/json"
+            "Content-Type": "application/json"
         }
 
     def get_demands(self, start_date: str, end_date: str):
