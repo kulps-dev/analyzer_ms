@@ -10,13 +10,13 @@ app = FastAPI()
 
 # Настройки базы данных
 DB_CONFIG = {
-    "host": "87.228.99.200",
-    "dbname": "MS",
-    "user": "louella",
-    "password": "XBcMJoEO1ljb",
-    "port": 5432,
-    "sslmode": "verify-ca",
-    "sslrootcert": "/root/.postgresql/root.crt"  # Абсолютный путь
+    "host": "87.228.99.200",  # IP-адрес, который работает
+    "port": 5432,             # Порт, который работает (5432 вместо 5433)
+    "dbname": "MS",           # Имя базы, к которой вы подключились
+    "user": "louella",        # Ваш пользователь
+    "password": "XBcMJoEO1ljb",  # Ваш пароль
+    "sslmode": "verify-ca",   # Режим SSL
+    "sslrootcert": "/root/.postgresql/root.crt"  # Путь к сертификату
 }
 
 # Инициализация API МойСклад
@@ -31,6 +31,7 @@ def get_db_connection():
 
 def init_db():
     """Инициализация таблицы в базе данных"""
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -49,6 +50,8 @@ def init_db():
         conn.commit()
     except Exception as e:
         print(f"Ошибка при инициализации БД: {e}")
+        if conn:
+            conn.rollback()
     finally:
         if conn:
             conn.close()
