@@ -20,12 +20,10 @@ document.addEventListener('DOMContentLoaded', function() {
             
             const response = await fetch('/api/export/excel', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    start_date: startDate,
-                    end_date: endDate
+                    start_date: "2025-03-01",  // Формат YYYY-MM-DD
+                    end_date: "2025-06-17"      // Время добавит бэкенд
                 })
             });
 
