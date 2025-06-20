@@ -84,13 +84,10 @@ async def save_to_db(date_range: DateRange):
                     status = EXCLUDED.status,
                     comment = EXCLUDED.comment
             """, (
-                demand.get("id", ""),
                 demand.get("name", ""),
                 demand.get("moment", ""),
                 demand.get("agent", {}).get("name", ""),
                 demand.get("sum", 0) / 100,
-                demand.get("state", {}).get("name", ""),
-                demand.get("description", "")
             ))
         
         conn.commit()
