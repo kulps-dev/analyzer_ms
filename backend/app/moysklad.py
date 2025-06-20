@@ -70,13 +70,10 @@ class MoyskladAPI:
         
         for demand in demands:
             row = [
-                demand.get("id", ""),
                 demand.get("name", ""),
                 demand.get("moment", ""),
                 demand.get("agent", {}).get("name", ""),
                 demand.get("sum", 0) / 100,
-                demand.get("state", {}).get("name", ""),
-                demand.get("description", "")
             ]
             ws.append(row)
         
