@@ -89,14 +89,6 @@ header h1 {
     letter-spacing: 1px;
 }
 
-.header-description {
-    color: var(--light);
-    font-size: 1.1rem;
-    max-width: 700px;
-    margin: 0 auto;
-    opacity: 0.9;
-}
-
 .back-button {
     display: inline-flex;
     align-items: center;

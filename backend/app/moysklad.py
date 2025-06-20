@@ -77,22 +77,24 @@ class MoyskladAPI:
                     print(f"Ошибка при получении склада: {e}")
                     demand["store"]["name"] = "Не удалось получить"
             
-            if "project" in demand and "name" not in demand["project"]:
+            # Обработка проекта
+            if "project" in demand and ("name" not in demand["project"] or not demand["project"]["name"]):
                 try:
                     project_url = demand["project"]["meta"]["href"]
                     project_data = self.get_project(project_url)
-                    demand["project"]["name"] = project_data.get("name", "")
+                    demand["project"]["name"] = project_data.get("name", "Без проекта")
                 except Exception as e:
                     print(f"Ошибка при получении проекта: {e}")
-                    demand["project"]["name"] = "Не удалось получить"
+                    demand["project"] = {"name": "Без проекта"}
             
-            if "salesChannel" in demand and "name" not in demand["salesChannel"]:
+            # Обработка канала продаж
+            if "salesChannel" in demand and ("name" not in demand["salesChannel"] or not demand["salesChannel"]["name"]):
                 try:
                     sales_channel_url = demand["salesChannel"]["meta"]["href"]
                     sales_channel_data = self.get_sales_channel(sales_channel_url)
-                    demand["salesChannel"]["name"] = sales_channel_data.get("name", "")
+                    demand["salesChannel"]["name"] = sales_channel_data.get("name", "Без канала")
                 except Exception as e:
                     print(f"Ошибка при получении канала продаж: {e}")
-                    demand["salesChannel"]["name"] = "Не удалось получить"
+                    demand["salesChannel"] = {"name": "Без канала"}
         
         return demands
