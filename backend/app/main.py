@@ -12,13 +12,13 @@ app = FastAPI()
 
 # Настройки базы данных
 DB_CONFIG = {
-    "host": "87.228.99.200",  # IP-адрес, который работает
-    "port": 5432,             # Порт, который работает (5432 вместо 5433)
-    "dbname": "MS",           # Имя базы, к которой вы подключились
-    "user": "louella",        # Ваш пользователь
-    "password": "XBcMJoEO1ljb",  # Ваш пароль
-    "sslmode": "verify-ca",   # Режим SSL
-    "sslrootcert": "/root/.postgresql/root.crt"  # Путь к сертификату
+    "host": "87.228.99.200",
+    "port": 5432,
+    "dbname": "MS",
+    "user": "louella",
+    "password": "XBcMJoEO1ljb",
+    "sslmode": "verify-ca",
+    "sslrootcert": "/root/.postgresql/root.crt"
 }
 
 # Инициализация API МойСклад
@@ -43,6 +43,9 @@ def init_db():
                 number VARCHAR(50),
                 date TIMESTAMP,
                 counterparty VARCHAR(255),
+                store VARCHAR(255),
+                project VARCHAR(255),
+                sales_channel VARCHAR(255),
                 amount NUMERIC(10, 2),
                 status VARCHAR(100),
                 comment TEXT,
@@ -65,35 +68,43 @@ init_db()
 async def save_to_db(date_range: DateRange):
     conn = None
     try:
-        # Проверяем/создаём таблицу перед работой с ней
         init_db()
-        
         demands = moysklad.get_demands(date_range.start_date, date_range.end_date)
         conn = get_db_connection()
         cur = conn.cursor()
         
         for demand in demands:
             cur.execute("""
-                INSERT INTO demands (id, number, date, counterparty, amount, status, comment)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO demands (id, number, date, counterparty, store, project, sales_channel, amount, status, comment)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (id) DO UPDATE SET
                     number = EXCLUDED.number,
                     date = EXCLUDED.date,
                     counterparty = EXCLUDED.counterparty,
+                    store = EXCLUDED.store,
+                    project = EXCLUDED.project,
+                    sales_channel = EXCLUDED.sales_channel,
                     amount = EXCLUDED.amount,
                     status = EXCLUDED.status,
                     comment = EXCLUDED.comment
             """, (
+                demand.get("id", ""),
                 demand.get("name", ""),
                 demand.get("moment", ""),
                 demand.get("agent", {}).get("name", ""),
+                demand.get("store", {}).get("name", ""),
+                demand.get("project", {}).get("name", ""),
+                demand.get("salesChannel", {}).get("name", ""),
                 demand.get("sum", 0) / 100,
+                demand.get("state", {}).get("name", ""),
+                demand.get("description", "")
             ))
         
         conn.commit()
         return {"message": f"Успешно сохранено {len(demands)} записей"}
     except Exception as e:
-        conn.rollback()
+        if conn:
+            conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn:
@@ -101,12 +112,13 @@ async def save_to_db(date_range: DateRange):
 
 @app.post("/api/export/excel")
 async def export_excel(date_range: DateRange):
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         
         cur.execute("""
-            SELECT id, number, date, counterparty, amount, status, comment
+            SELECT id, number, date, counterparty, store, project, sales_channel, amount, status, comment
             FROM demands
             WHERE date BETWEEN %s AND %s
         """, (date_range.start_date, date_range.end_date))
@@ -117,11 +129,55 @@ async def export_excel(date_range: DateRange):
         ws = wb.active
         ws.title = "Отгрузки"
         
-        headers = ["ID", "Номер", "Дата", "Контрагент", "Сумма", "Статус", "Комментарий"]
+        headers = [
+            "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
+            "Товар", "Артикул", "Код", "Количество", "Сумма", "Сумма оплачиваемой доставки",
+            "Себестоимость товара", "Накладные расходы в с/с", "Прибыль", "Акционный период",
+            "Сумма доставки", "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS",
+            "Яндекс Маркет FBS", "Яндекс Маркет DBS", "Яндекс Директ", "Price ru",
+            "Wildberries", "2Gis", "SEO", "Программатик", "Авито", "Мультиканальные заказы",
+            "Примеренная скидка"
+        ]
         ws.append(headers)
         
         for row in rows:
-            ws.append(row)
+            # Преобразуем строку БД в список значений для Excel
+            excel_row = [
+                row[1],  # Номер отгрузки
+                row[2],  # Дата
+                row[3],  # Контрагент
+                row[4],  # Склад
+                row[5],  # Проект
+                row[6],  # Канал продаж
+                "",      # Товар (будет заполняться отдельно)
+                "",      # Артикул
+                "",      # Код
+                "",      # Количество
+                row[7],  # Сумма
+                "",      # Сумма оплачиваемой доставки
+                "",      # Себестоимость товара
+                "",      # Накладные расходы в с/с
+                "",      # Прибыль
+                "",      # Акционный период
+                "",      # Сумма доставки
+                "",      # Адмидат
+                "",      # ГдеСлон
+                "",      # CityAds
+                "",      # Ozon
+                "",      # Ozon FBS
+                "",      # Яндекс Маркет FBS
+                "",      # Яндекс Маркет DBS
+                "",      # Яндекс Директ
+                "",      # Price ru
+                "",      # Wildberries
+                "",      # 2Gis
+                "",      # SEO
+                "",      # Программатик
+                "",      # Авито
+                "",      # Мультиканальные заказы
+                ""       # Примеренная скидка
+            ]
+            ws.append(excel_row)
         
         buffer = io.BytesIO()
         wb.save(buffer)
