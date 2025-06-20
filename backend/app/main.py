@@ -61,9 +61,12 @@ init_db()
 
 @app.post("/api/save-to-db")
 async def save_to_db(date_range: DateRange):
+    conn = None
     try:
-        demands = moysklad.get_demands(date_range.start_date, date_range.end_date)
+        # Проверяем/создаём таблицу перед работой с ней
+        init_db()
         
+        demands = moysklad.get_demands(date_range.start_date, date_range.end_date)
         conn = get_db_connection()
         cur = conn.cursor()
         
@@ -129,23 +132,6 @@ async def export_excel(date_range: DateRange):
             "file": buffer.read().hex(),
             "filename": f"demands_{date_range.start_date}_{date_range.end_date}.xlsx"
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if conn:
-            conn.close()
-@app.get("/api/get-demands")
-async def get_demands(limit: int = 10):
-    conn = None
-    try:
-        conn = get_db_connection()
-        with conn.cursor() as cur:
-            cur.execute("SELECT * FROM demands LIMIT %s", (limit,))
-            columns = [desc[0] for desc in cur.description]
-            return {
-                "columns": columns,
-                "data": cur.fetchall()
-            }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
