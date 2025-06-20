@@ -47,6 +47,27 @@ def init_db():
                 project VARCHAR(255),
                 sales_channel VARCHAR(255),
                 amount NUMERIC(10, 2),
+                cost_price NUMERIC(10, 2),
+                overhead NUMERIC(10, 2),
+                profit NUMERIC(10, 2),
+                promo_period VARCHAR(100),
+                delivery_amount NUMERIC(10, 2),
+                admin_data VARCHAR(255),
+                gdeslon VARCHAR(255),
+                cityads VARCHAR(255),
+                ozon VARCHAR(255),
+                ozon_fbs VARCHAR(255),
+                yamarket_fbs VARCHAR(255),
+                yamarket_dbs VARCHAR(255),
+                yandex_direct VARCHAR(255),
+                price_ru VARCHAR(255),
+                wildberries VARCHAR(255),
+                gis2 VARCHAR(255),
+                seo VARCHAR(255),
+                programmatic VARCHAR(255),
+                avito VARCHAR(255),
+                multiorders VARCHAR(255),
+                estimated_discount NUMERIC(10, 2),
                 status VARCHAR(100),
                 comment TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -75,7 +96,10 @@ async def save_to_db(date_range: DateRange):
         
         for demand in demands:
             cur.execute("""
-                INSERT INTO demands (id, number, date, counterparty, store, project, sales_channel, amount, status, comment)
+                INSERT INTO demands (
+                    id, number, date, counterparty, store, project, sales_channel, 
+                    amount, status, comment
+                )
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (id) DO UPDATE SET
                     number = EXCLUDED.number,
@@ -118,7 +142,12 @@ async def export_excel(date_range: DateRange):
         cur = conn.cursor()
         
         cur.execute("""
-            SELECT id, number, date, counterparty, store, project, sales_channel, amount, status, comment
+            SELECT 
+                number, date, counterparty, store, project, sales_channel,
+                amount, cost_price, overhead, profit, promo_period, delivery_amount,
+                admin_data, gdeslon, cityads, ozon, ozon_fbs, yamarket_fbs,
+                yamarket_dbs, yandex_direct, price_ru, wildberries, gis2, seo,
+                programmatic, avito, multiorders, estimated_discount
             FROM demands
             WHERE date BETWEEN %s AND %s
         """, (date_range.start_date, date_range.end_date))
@@ -127,12 +156,11 @@ async def export_excel(date_range: DateRange):
         
         wb = Workbook()
         ws = wb.active
-        ws.title = "Отгрузки"
+        ws.title = "Отчет по отгрузкам"
         
         headers = [
             "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
-            "Товар", "Артикул", "Код", "Количество", "Сумма", "Сумма оплачиваемой доставки",
-            "Себестоимость товара", "Накладные расходы в с/с", "Прибыль", "Акционный период",
+            "Сумма", "Себестоимость", "Накладные расходы", "Прибыль", "Акционный период",
             "Сумма доставки", "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS",
             "Яндекс Маркет FBS", "Яндекс Маркет DBS", "Яндекс Директ", "Price ru",
             "Wildberries", "2Gis", "SEO", "Программатик", "Авито", "Мультиканальные заказы",
@@ -141,43 +169,7 @@ async def export_excel(date_range: DateRange):
         ws.append(headers)
         
         for row in rows:
-            # Преобразуем строку БД в список значений для Excel
-            excel_row = [
-                row[1],  # Номер отгрузки
-                row[2],  # Дата
-                row[3],  # Контрагент
-                row[4],  # Склад
-                row[5],  # Проект
-                row[6],  # Канал продаж
-                "",      # Товар (будет заполняться отдельно)
-                "",      # Артикул
-                "",      # Код
-                "",      # Количество
-                row[7],  # Сумма
-                "",      # Сумма оплачиваемой доставки
-                "",      # Себестоимость товара
-                "",      # Накладные расходы в с/с
-                "",      # Прибыль
-                "",      # Акционный период
-                "",      # Сумма доставки
-                "",      # Адмидат
-                "",      # ГдеСлон
-                "",      # CityAds
-                "",      # Ozon
-                "",      # Ozon FBS
-                "",      # Яндекс Маркет FBS
-                "",      # Яндекс Маркет DBS
-                "",      # Яндекс Директ
-                "",      # Price ru
-                "",      # Wildberries
-                "",      # 2Gis
-                "",      # SEO
-                "",      # Программатик
-                "",      # Авито
-                "",      # Мультиканальные заказы
-                ""       # Примеренная скидка
-            ]
-            ws.append(excel_row)
+            ws.append(row)
         
         buffer = io.BytesIO()
         wb.save(buffer)
@@ -185,7 +177,7 @@ async def export_excel(date_range: DateRange):
         
         return {
             "file": buffer.read().hex(),
-            "filename": f"demands_{date_range.start_date}_{date_range.end_date}.xlsx"
+            "filename": f"Отчет_по_отгрузкам_{date_range.start_date}_{date_range.end_date}.xlsx"
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
