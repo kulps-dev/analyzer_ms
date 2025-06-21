@@ -2,6 +2,18 @@ import requests
 import io
 from openpyxl import Workbook
 from datetime import datetime
+import logging
+
+# Настройка логгера
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Создаем обработчик для вывода в консоль
+handler = logging.StreamHandler()
+handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
 class MoyskladAPI:
     def __init__(self, token: str):
