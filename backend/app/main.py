@@ -134,8 +134,8 @@ async def save_to_db(date_range: DateRange):
 
                 # Обработка атрибутов
                 attr_fields = {
-                    "promo_period": ("Акционный период", 0),
-                    "delivery_amount": ("Сумма доставки", 0.0),
+                    "promo_period": ("Акционный период", ""),
+                    "delivery_amount": ("Сумма доставки", ""),
                     "admin_data": ("Адмидат", ""),
                     "gdeslon": ("ГдеСлон", ""),
                     "cityads": ("CityAds", ""),
@@ -151,7 +151,7 @@ async def save_to_db(date_range: DateRange):
                     "programmatic": ("Программатик", ""),
                     "avito": ("Авито", ""),
                     "multiorders": ("Мультиканальные заказы", ""),
-                    "estimated_discount": ("Примеренная скидка", 0.0)
+                    "estimated_discount": ("Примеренная скидка", "")
                 }
 
                 for field, (attr_name, default) in attr_fields.items():
