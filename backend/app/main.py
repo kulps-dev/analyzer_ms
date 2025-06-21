@@ -95,12 +95,60 @@ async def save_to_db(date_range: DateRange):
         cur = conn.cursor()
         
         for demand in demands:
+            # Получаем атрибуты
+            attributes = demand.get("attributes", [])
+            attr_dict = {attr["name"]: attr["value"] for attr in attributes}
+            
+            # Подготавливаем значения для вставки
+            values = {
+                "id": demand.get("id", ""),
+                "number": demand.get("name", ""),
+                "date": demand.get("moment", ""),
+                "counterparty": demand.get("agent", {}).get("name", ""),
+                "store": demand.get("store", {}).get("name", ""),
+                "project": demand.get("project", {}).get("name", ""),
+                "sales_channel": demand.get("salesChannel", {}).get("name", ""),
+                "amount": demand.get("sum", 0) / 100,
+                "cost_price": 0,  # по умолчанию
+                "overhead": 0,   # по умолчанию
+                "profit": 0,     # по умолчанию
+                "promo_period": attr_dict.get("Акционный период", ""),
+                "delivery_amount": attr_dict.get("Сумма доставки", 0),
+                "admin_data": attr_dict.get("Адмидат", ""),
+                "gdeslon": attr_dict.get("ГдеСлон", ""),
+                "cityads": attr_dict.get("CityAds", ""),
+                "ozon": attr_dict.get("Ozon", ""),
+                "ozon_fbs": attr_dict.get("Ozon FBS", ""),
+                "yamarket_fbs": attr_dict.get("Яндекс Маркет FBS", ""),
+                "yamarket_dbs": attr_dict.get("Яндекс Маркет DBS", ""),
+                "yandex_direct": attr_dict.get("Яндекс Директ", ""),
+                "price_ru": attr_dict.get("Price ru", ""),
+                "wildberries": attr_dict.get("Wildberries", ""),
+                "gis2": attr_dict.get("2Gis", ""),
+                "seo": attr_dict.get("SEO", ""),
+                "programmatic": attr_dict.get("Программатик", ""),
+                "avito": attr_dict.get("Авито", ""),
+                "multiorders": attr_dict.get("Мультиканальные заказы", ""),
+                "estimated_discount": attr_dict.get("Примеренная скидка", 0),
+                "status": demand.get("state", {}).get("name", ""),
+                "comment": demand.get("description", "")
+            }
+            
             cur.execute("""
                 INSERT INTO demands (
                     id, number, date, counterparty, store, project, sales_channel, 
-                    amount, status, comment
+                    amount, cost_price, overhead, profit, promo_period, delivery_amount,
+                    admin_data, gdeslon, cityads, ozon, ozon_fbs, yamarket_fbs,
+                    yamarket_dbs, yandex_direct, price_ru, wildberries, gis2, seo,
+                    programmatic, avito, multiorders, estimated_discount, status, comment
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (
+                    %(id)s, %(number)s, %(date)s, %(counterparty)s, %(store)s, %(project)s, %(sales_channel)s,
+                    %(amount)s, %(cost_price)s, %(overhead)s, %(profit)s, %(promo_period)s, %(delivery_amount)s,
+                    %(admin_data)s, %(gdeslon)s, %(cityads)s, %(ozon)s, %(ozon_fbs)s, %(yamarket_fbs)s,
+                    %(yamarket_dbs)s, %(yandex_direct)s, %(price_ru)s, %(wildberries)s, %(gis2)s, %(seo)s,
+                    %(programmatic)s, %(avito)s, %(multiorders)s, %(estimated_discount)s, %(status)s, %(comment)s
+                )
                 ON CONFLICT (id) DO UPDATE SET
                     number = EXCLUDED.number,
                     date = EXCLUDED.date,
@@ -109,20 +157,30 @@ async def save_to_db(date_range: DateRange):
                     project = EXCLUDED.project,
                     sales_channel = EXCLUDED.sales_channel,
                     amount = EXCLUDED.amount,
+                    cost_price = EXCLUDED.cost_price,
+                    overhead = EXCLUDED.overhead,
+                    profit = EXCLUDED.profit,
+                    promo_period = EXCLUDED.promo_period,
+                    delivery_amount = EXCLUDED.delivery_amount,
+                    admin_data = EXCLUDED.admin_data,
+                    gdeslon = EXCLUDED.gdeslon,
+                    cityads = EXCLUDED.cityads,
+                    ozon = EXCLUDED.ozon,
+                    ozon_fbs = EXCLUDED.ozon_fbs,
+                    yamarket_fbs = EXCLUDED.yamarket_fbs,
+                    yamarket_dbs = EXCLUDED.yamarket_dbs,
+                    yandex_direct = EXCLUDED.yandex_direct,
+                    price_ru = EXCLUDED.price_ru,
+                    wildberries = EXCLUDED.wildberries,
+                    gis2 = EXCLUDED.gis2,
+                    seo = EXCLUDED.seo,
+                    programmatic = EXCLUDED.programmatic,
+                    avito = EXCLUDED.avito,
+                    multiorders = EXCLUDED.multiorders,
+                    estimated_discount = EXCLUDED.estimated_discount,
                     status = EXCLUDED.status,
                     comment = EXCLUDED.comment
-            """, (
-                demand.get("id", ""),
-                demand.get("name", ""),
-                demand.get("moment", ""),
-                demand.get("agent", {}).get("name", ""),
-                demand.get("store", {}).get("name", ""),
-                demand.get("project", {}).get("name", ""),
-                demand.get("salesChannel", {}).get("name", ""),
-                demand.get("sum", 0) / 100,
-                demand.get("state", {}).get("name", ""),
-                demand.get("description", "")
-            ))
+            """, values)
         
         conn.commit()
         return {"message": f"Успешно сохранено {len(demands)} записей"}

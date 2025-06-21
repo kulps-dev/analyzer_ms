@@ -48,7 +48,7 @@ class MoyskladAPI:
         params = {
             "filter": filter_str,
             "limit": 1000,
-            "expand": "agent,store,project,salesChannel"
+            "expand": "agent,store,project,salesChannel,attributes"
         }
         
         print(f"Отправляемый запрос: {url}?{requests.models.RequestEncodingMixin._encode_params(params)}")
@@ -96,5 +96,17 @@ class MoyskladAPI:
                 except Exception as e:
                     print(f"Ошибка при получении канала продаж: {e}")
                     demand["salesChannel"] = {"name": "Без канала"}
+            
+            # Обработка атрибутов
+            if "attributes" in demand:
+                for attr in demand["attributes"]:
+                    if attr["value"] is None:
+                        # Устанавливаем значение по умолчанию в зависимости от типа атрибута
+                        if attr["type"] in ["double", "long", "int"]:
+                            attr["value"] = 0
+                        elif attr["type"] == "boolean":
+                            attr["value"] = False
+                        elif attr["type"] == "string":
+                            attr["value"] = ""
         
         return demands
