@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import psycopg2
-from .moysklad import MoyskladAPI
+from moysklad import MoyskladAPI
 from datetime import datetime
 import os
 from openpyxl import Workbook
