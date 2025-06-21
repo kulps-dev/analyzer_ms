@@ -99,37 +99,42 @@ async def save_to_db(date_range: DateRange):
             attributes = demand.get("attributes", [])
             attr_dict = {attr["name"]: attr["value"] for attr in attributes}
             
+            # Обрабатываем момент (дату)
+            moment = demand.get("moment", "")
+            if isinstance(moment, dict):
+                moment = moment.get("value", "")
+            
             # Подготавливаем значения для вставки
             values = {
                 "id": demand.get("id", ""),
                 "number": demand.get("name", ""),
-                "date": demand.get("moment", ""),
+                "date": moment,
                 "counterparty": demand.get("agent", {}).get("name", ""),
                 "store": demand.get("store", {}).get("name", ""),
                 "project": demand.get("project", {}).get("name", ""),
                 "sales_channel": demand.get("salesChannel", {}).get("name", ""),
-                "amount": demand.get("sum", 0) / 100,
+                "amount": float(demand.get("sum", 0)) / 100,
                 "cost_price": 0,  # по умолчанию
                 "overhead": 0,   # по умолчанию
                 "profit": 0,     # по умолчанию
-                "promo_period": attr_dict.get("Акционный период", ""),
-                "delivery_amount": attr_dict.get("Сумма доставки", 0),
-                "admin_data": attr_dict.get("Адмидат", ""),
-                "gdeslon": attr_dict.get("ГдеСлон", ""),
-                "cityads": attr_dict.get("CityAds", ""),
-                "ozon": attr_dict.get("Ozon", ""),
-                "ozon_fbs": attr_dict.get("Ozon FBS", ""),
-                "yamarket_fbs": attr_dict.get("Яндекс Маркет FBS", ""),
-                "yamarket_dbs": attr_dict.get("Яндекс Маркет DBS", ""),
-                "yandex_direct": attr_dict.get("Яндекс Директ", ""),
-                "price_ru": attr_dict.get("Price ru", ""),
-                "wildberries": attr_dict.get("Wildberries", ""),
-                "gis2": attr_dict.get("2Gis", ""),
-                "seo": attr_dict.get("SEO", ""),
-                "programmatic": attr_dict.get("Программатик", ""),
-                "avito": attr_dict.get("Авито", ""),
-                "multiorders": attr_dict.get("Мультиканальные заказы", ""),
-                "estimated_discount": attr_dict.get("Примеренная скидка", 0),
+                "promo_period": str(attr_dict.get("Акционный период", "")),
+                "delivery_amount": float(attr_dict.get("Сумма доставки", 0)),
+                "admin_data": str(attr_dict.get("Адмидат", "")),
+                "gdeslon": str(attr_dict.get("ГдеСлон", "")),
+                "cityads": str(attr_dict.get("CityAds", "")),
+                "ozon": str(attr_dict.get("Ozon", "")),
+                "ozon_fbs": str(attr_dict.get("Ozon FBS", "")),
+                "yamarket_fbs": str(attr_dict.get("Яндекс Маркет FBS", "")),
+                "yamarket_dbs": str(attr_dict.get("Яндекс Маркет DBS", "")),
+                "yandex_direct": str(attr_dict.get("Яндекс Директ", "")),
+                "price_ru": str(attr_dict.get("Price ru", "")),
+                "wildberries": str(attr_dict.get("Wildberries", "")),
+                "gis2": str(attr_dict.get("2Gis", "")),
+                "seo": str(attr_dict.get("SEO", "")),
+                "programmatic": str(attr_dict.get("Программатик", "")),
+                "avito": str(attr_dict.get("Авито", "")),
+                "multiorders": str(attr_dict.get("Мультиканальные заказы", "")),
+                "estimated_discount": float(attr_dict.get("Примеренная скидка", 0)),
                 "status": demand.get("state", {}).get("name", ""),
                 "comment": demand.get("description", "")
             }
