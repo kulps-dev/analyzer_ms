@@ -2,18 +2,6 @@ import requests
 import io
 from openpyxl import Workbook
 from datetime import datetime
-import logging
-
-# Настройка логгера
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-# Создаем обработчик для вывода в консоль
-handler = logging.StreamHandler()
-handler.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-handler.setFormatter(formatter)
-logger.addHandler(handler)
 
 class MoyskladAPI:
     def __init__(self, token: str):
@@ -75,52 +63,25 @@ class MoyskladAPI:
             return 0
 
     def get_demands(self, start_date: str, end_date: str):
-        """Получить отгрузки за период с пагинацией и батчингом"""
+        """Получить отгрузки за период"""
         url = f"{self.base_url}/entity/demand"
-        all_demands = []
-        offset = 0
-        limit = 100  # Оптимальный размер страницы
-        max_requests = 100  # Лимит запросов для защиты от бесконечного цикла
-        request_count = 0
         
-        # Подготовка фильтра
+        start_date = start_date.split(' ')[0].split('T')[0]
+        end_date = end_date.split(' ')[0].split('T')[0]
+        
         filter_str = f"moment>={start_date} 00:00:00;moment<={end_date} 23:59:59"
         
-        while request_count < max_requests:
-            params = {
-                "filter": filter_str,
-                "limit": limit,
-                "offset": offset,
-                "expand": "agent,store,project,salesChannel,attributes"
-            }
-            
-            try:
-                logger.info(f"Запрос данных: offset={offset}, limit={limit}")
-                response = requests.get(url, headers=self.headers, params=params, timeout=60)
-                response.raise_for_status()
-                data = response.json()
-                demands = data.get("rows", [])
-                
-                if not demands:
-                    break
-                    
-                all_demands.extend(demands)
-                offset += limit
-                request_count += 1
-                
-                # Если получено меньше запрошенного, значит это последняя страница
-                if len(demands) < limit:
-                    break
-                    
-            except requests.exceptions.Timeout:
-                logger.error(f"Timeout при запросе отгрузок (offset={offset})")
-                break
-            except Exception as e:
-                logger.error(f"Ошибка при получении отгрузок: {str(e)}")
-                break
+        params = {
+            "filter": filter_str,
+            "limit": 1000,
+            "expand": "agent,store,project,salesChannel"
+        }
         
-        logger.info(f"Всего получено отгрузок: {len(all_demands)}")
-        return all_demands
+        print(f"Отправляемый запрос: {url}?{requests.models.RequestEncodingMixin._encode_params(params)}")
+        
+        response = requests.get(url, headers=self.headers, params=params)
+        response.raise_for_status()
+        demands = response.json()["rows"]
         
         # Дополнительно получаем полные данные, если они не были получены через expand
         for demand in demands:
