@@ -268,7 +268,7 @@ async def save_to_db(date_range: DateRange, background_tasks: BackgroundTasks):
         init_db()
         
         # Генерируем уникальный ID задачи
-        task_id = str(int(time.time()))
+        task_id = str(int(time.time()))  # Здесь используется модуль time
         tasks[task_id] = {
             "status": "starting",
             "processed": 0,
