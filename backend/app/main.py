@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import psycopg2
-from moysklad import MoyskladAPI
+from .moysklad import MoyskladAPI
 from datetime import datetime
 import os
 from openpyxl import Workbook
@@ -129,7 +129,7 @@ async def save_to_db(date_range: DateRange):
                     "project": str(demand.get("project", {}).get("name", "Без проекта"))[:255],
                     "sales_channel": str(demand.get("salesChannel", {}).get("name", "Без канала"))[:255],
                     "amount": float(demand.get("sum", 0)) / 100,
-                    "cost_price": float(demand.get("costPrice", 0)),
+                    "cost_price": 0,
                     "overhead": overhead_sum,  # Используем рассчитанные накладные расходы
                     "profit": 0,
                     "status": str(demand.get("state", {}).get("name", ""))[:100],

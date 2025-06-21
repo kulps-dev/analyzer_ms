@@ -35,13 +35,6 @@ class MoyskladAPI:
         response = requests.get(sales_channel_url, headers=self.headers)
         response.raise_for_status()
         return response.json()
-        
-    def get_stock_by_operation(self, operation_id: str):
-        """Получить данные о себестоимости товаров в отгрузке"""
-        url = f"{self.base_url}/report/stock/byoperation?operation.id={operation_id}"
-        response = requests.get(url, headers=self.headers)
-        response.raise_for_status()
-        return response.json()
 
     def get_demands(self, start_date: str, end_date: str):
         """Получить отгрузки за период"""
