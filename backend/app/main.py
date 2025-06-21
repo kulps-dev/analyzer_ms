@@ -311,6 +311,9 @@ async def export_excel(date_range: DateRange):
             column_letter = get_column_letter(col)
             ws.column_dimensions[column_letter].width = max(15, len(headers[col-1]) * 1.2)
         
+        # Определяем числовые столбцы (нумерация с 1)
+        numeric_columns = [7, 8, 9, 10, 12] + list(range(13, 29))  # 7-12 и 13-28 (включительно)
+        
         # Добавляем данные и форматируем их
         for row_idx, row in enumerate(rows, start=2):
             for col_idx, value in enumerate(row, start=1):
@@ -319,7 +322,7 @@ async def export_excel(date_range: DateRange):
                 cell.border = thin_border
                 
                 # Форматирование чисел и дат
-                if col_idx in [7, 8, 9, 10, 12] + list(range(13, 28)):  # Все числовые столбцы (7-10, 12-27)
+                if col_idx in numeric_columns:  # Все числовые столбцы
                     try:
                         # Преобразуем значение в число, если возможно
                         num_value = float(value) if value not in [None, ''] else 0.0
@@ -354,8 +357,8 @@ async def export_excel(date_range: DateRange):
             cell.font = Font(bold=True)
             cell.border = thin_border
             
-            # Суммы для денежных столбцов (7-10, 12-27)
-            if col in [7, 8, 9, 10, 12] + list(range(13, 29)):
+            # Суммы для числовых столбцов
+            if col in numeric_columns:
                 start_col = get_column_letter(col)
                 formula = f"SUM({start_col}2:{start_col}{last_row})"
                 cell.value = f"=ROUND({formula}, 2)"
