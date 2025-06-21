@@ -134,7 +134,7 @@ async def save_to_db(date_range: DateRange):
 
                 # Обработка атрибутов
                 attr_fields = {
-                    "promo_period": ("Акционный период", 100),
+                    "promo_period": ("Акционный период", ),
                     "delivery_amount": ("Сумма доставки", 0.0),
                     "admin_data": ("Адмидат", ""),
                     "gdeslon": ("ГдеСлон", ""),
