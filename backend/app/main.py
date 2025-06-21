@@ -122,6 +122,10 @@ async def save_to_db(date_range: DateRange):
                 overhead_sum = float(overhead_data.get("sum", 0)) / 100  # Делим на 100 для перевода в рубли
                 
                 # Основные данные
+                amount = float(demand.get("sum", 0)) / 100
+                cost_price = demand.get("costPrice", 0)
+                profit = amount - cost_price - overhead_sum
+                
                 values = {
                     "id": str(demand.get("id", ""))[:255],
                     "number": str(demand.get("name", ""))[:50],
@@ -130,13 +134,10 @@ async def save_to_db(date_range: DateRange):
                     "store": str(demand.get("store", {}).get("name", ""))[:255],
                     "project": str(demand.get("project", {}).get("name", "Без проекта"))[:255],
                     "sales_channel": str(demand.get("salesChannel", {}).get("name", "Без канала"))[:255],
-                    "amount": float(demand.get("sum", 0)) / 100,
-                    "cost_price": demand.get("costPrice", 0),  # Используем полученную себестоимость
+                    "amount": amount,
+                    "cost_price": cost_price,
                     "overhead": overhead_sum,
-                    "profit": (float(demand.get("sum", 0)) / 100) - demand.get("costPrice", 0) - overhead_sum,
-                    "status": str(demand.get("state", {}).get("name", ""))[:100],
-                    "comment": str(demand.get("description", ""))[:255],
-                    "profit": 0,
+                    "profit": profit,
                     "status": str(demand.get("state", {}).get("name", ""))[:100],
                     "comment": str(demand.get("description", ""))[:255]
                 }
