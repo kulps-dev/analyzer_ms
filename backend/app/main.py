@@ -52,21 +52,21 @@ def init_db():
                 profit NUMERIC(10, 2),
                 promo_period VARCHAR(100),
                 delivery_amount NUMERIC(10, 2),
-                admin_data NUMERIC(10, 2),  -- Изменено на NUMERIC
-                gdeslon NUMERIC(10, 2),     -- Изменено на NUMERIC
-                cityads NUMERIC(10, 2),      -- Изменено на NUMERIC
-                ozon NUMERIC(10, 2),         -- Изменено на NUMERIC
-                ozon_fbs NUMERIC(10, 2),     -- Изменено на NUMERIC
-                yamarket_fbs NUMERIC(10, 2), -- Изменено на NUMERIC
-                yamarket_dbs NUMERIC(10, 2), -- Изменено на NUMERIC
-                yandex_direct NUMERIC(10, 2),-- Изменено на NUMERIC
-                price_ru NUMERIC(10, 2),     -- Изменено на NUMERIC
-                wildberries NUMERIC(10, 2),  -- Изменено на NUMERIC
-                gis2 NUMERIC(10, 2),        -- Изменено на NUMERIC
-                seo NUMERIC(10, 2),          -- Изменено на NUMERIC
-                programmatic NUMERIC(10, 2),  -- Изменено на NUMERIC
-                avito NUMERIC(10, 2),        -- Изменено на NUMERIC
-                multiorders NUMERIC(10, 2),   -- Изменено на NUMERIC
+                admin_data VARCHAR(255),
+                gdeslon VARCHAR(255),
+                cityads VARCHAR(255),
+                ozon VARCHAR(255),
+                ozon_fbs VARCHAR(255),
+                yamarket_fbs VARCHAR(255),
+                yamarket_dbs VARCHAR(255),
+                yandex_direct VARCHAR(255),
+                price_ru VARCHAR(255),
+                wildberries VARCHAR(255),
+                gis2 VARCHAR(255),
+                seo VARCHAR(255),
+                programmatic VARCHAR(255),
+                avito VARCHAR(255),
+                multiorders NUMERIC(10, 2),
                 estimated_discount NUMERIC(10, 2),
                 status VARCHAR(100),
                 comment TEXT,
@@ -162,16 +162,14 @@ async def save_to_db(date_range: DateRange):
                     "estimated_discount": ("Примеренная скидка", 0)
                 }
 
-                # И замените обработку атрибутов на:
                 for field, (attr_name, default) in attr_fields.items():
-                    try:
-                        # Для всех полей, кроме promo_period, сохраняем как числа
-                        if field != "promo_period":
+                    if field.endswith("_amount") or field == "estimated_discount":
+                        try:
                             values[field] = float(get_attr_value(attributes, attr_name, default))
-                        else:
-                            values[field] = str(get_attr_value(attributes, attr_name, default))[:100]
-                    except (ValueError, TypeError):
-                        values[field] = default if field != "promo_period" else str(default)
+                        except (ValueError, TypeError):
+                            values[field] = 0.0
+                    else:
+                        values[field] = str(get_attr_value(attributes, attr_name, default))[:255]
                 
                 print(f"Данные для сохранения: {values}")
 
@@ -321,10 +319,10 @@ async def export_excel(date_range: DateRange):
                 cell.border = thin_border
                 
                 # Форматирование чисел и дат
-                if col_idx in [7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]:
+                if col_idx in [7, 8, 9, 10, 12, 28]:  # Столбцы с денежными значениями
                     cell.number_format = '#,##0.00'
                     cell.alignment = right_alignment
-                    if row_idx % 2 == 0:
+                    if row_idx % 2 == 0:  # Зебра для читаемости
                         cell.fill = money_fill
                 elif col_idx == 2:  # Столбец с датой
                     cell.number_format = 'DD.MM.YYYY'
