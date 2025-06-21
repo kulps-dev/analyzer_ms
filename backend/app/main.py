@@ -115,6 +115,10 @@ async def save_to_db(date_range: DateRange):
 
                 attributes = demand.get("attributes", [])
                 
+                # Обработка накладных расходов (overhead)
+                overhead_data = demand.get("overhead", {})
+                overhead_sum = float(overhead_data.get("sum", 0)) / 100  # Делим на 100 для перевода в рубли
+                
                 # Основные данные
                 values = {
                     "id": str(demand.get("id", ""))[:255],
@@ -126,16 +130,16 @@ async def save_to_db(date_range: DateRange):
                     "sales_channel": str(demand.get("salesChannel", {}).get("name", "Без канала"))[:255],
                     "amount": float(demand.get("sum", 0)) / 100,
                     "cost_price": 0,
-                    "overhead": 0,
+                    "overhead": overhead_sum,  # Используем рассчитанные накладные расходы
                     "profit": 0,
                     "status": str(demand.get("state", {}).get("name", ""))[:100],
                     "comment": str(demand.get("description", ""))[:255]
                 }
 
-                # Обработка атрибутов
+                # Остальная обработка атрибутов остается без изменений
                 attr_fields = {
-                    "promo_period": ("Акционный период", ""),
-                    "delivery_amount": ("Сумма доставки", ""),
+                    "promo_period": ("Акционный период", 100),
+                    "delivery_amount": ("Сумма доставки", 0.0),
                     "admin_data": ("Адмидат", ""),
                     "gdeslon": ("ГдеСлон", ""),
                     "cityads": ("CityAds", ""),
@@ -151,24 +155,22 @@ async def save_to_db(date_range: DateRange):
                     "programmatic": ("Программатик", ""),
                     "avito": ("Авито", ""),
                     "multiorders": ("Мультиканальные заказы", ""),
-                    "estimated_discount": ("Примеренная скидка", "")
+                    "estimated_discount": ("Примеренная скидка", 0.0)
                 }
 
                 for field, (attr_name, default) in attr_fields.items():
                     if field.endswith("_amount") or field == "estimated_discount":
-                        # Числовые поля
                         try:
                             values[field] = float(get_attr_value(attributes, attr_name, default))
                         except (ValueError, TypeError):
                             values[field] = 0.0
                     else:
-                        # Строковые поля
                         values[field] = str(get_attr_value(attributes, attr_name, default))[:255]
                 
-                # Проверка данных перед вставкой
-                print(f"Подготовлены значения для вставки: {values}")  # Логирование
+                # Логирование для отладки
+                print(f"Данные для сохранения: {values}")
 
-                # SQL-запрос
+                # SQL-запрос (без изменений)
                 cur.execute("""
                     INSERT INTO demands (
                         id, number, date, counterparty, store, project, sales_channel, 
@@ -228,7 +230,7 @@ async def save_to_db(date_range: DateRange):
     except Exception as e:
         if conn:
             conn.rollback()
-        print(f"Критическая ошибка: {str(e)}")  # Логирование
+        print(f"Критическая ошибка: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn:
