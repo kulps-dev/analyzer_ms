@@ -5,7 +5,6 @@ import psycopg2
 from .moysklad import MoyskladAPI
 from datetime import datetime
 import os
-from openpyxl import Workbook
 import io
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
