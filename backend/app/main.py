@@ -252,6 +252,7 @@ async def export_excel(date_range: DateRange):
                 programmatic, avito, multiorders, estimated_discount
             FROM demands
             WHERE date BETWEEN %s AND %s
+            ORDER BY date DESC
         """, (date_range.start_date, date_range.end_date))
         
         rows = cur.fetchall()
@@ -260,6 +261,7 @@ async def export_excel(date_range: DateRange):
         ws = wb.active
         ws.title = "Отчет по отгрузкам"
         
+        # Заголовки столбцов
         headers = [
             "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
             "Сумма", "Себестоимость", "Накладные расходы", "Прибыль", "Акционный период",
@@ -268,10 +270,92 @@ async def export_excel(date_range: DateRange):
             "Wildberries", "2Gis", "SEO", "Программатик", "Авито", "Мультиканальные заказы",
             "Примеренная скидка"
         ]
+        
+        # Стили для оформления
+        from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+        from openpyxl.utils import get_column_letter
+        
+        # Шрифты
+        header_font = Font(name='Calibri', bold=True, size=12, color='FFFFFF')
+        cell_font = Font(name='Calibri', size=11)
+        
+        # Выравнивание
+        center_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        left_alignment = Alignment(horizontal='left', vertical='center')
+        right_alignment = Alignment(horizontal='right', vertical='center')
+        
+        # Границы
+        thin_border = Border(left=Side(style='thin'), 
+                          right=Side(style='thin'), 
+                          top=Side(style='thin'), 
+                          bottom=Side(style='thin'))
+        
+        # Заливка
+        header_fill = PatternFill(start_color='4F81BD', end_color='4F81BD', fill_type='solid')
+        money_fill = PatternFill(start_color='E6E6E6', end_color='E6E6E6', fill_type='solid')
+        
+        # Добавляем заголовки
         ws.append(headers)
         
-        for row in rows:
-            ws.append(row)
+        # Форматируем заголовки
+        for col in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col)
+            cell.font = header_font
+            cell.alignment = center_alignment
+            cell.fill = header_fill
+            cell.border = thin_border
+            
+            # Автоподбор ширины столбца
+            column_letter = get_column_letter(col)
+            ws.column_dimensions[column_letter].width = max(15, len(headers[col-1]) * 1.2)
+        
+        # Добавляем данные и форматируем их
+        for row_idx, row in enumerate(rows, start=2):
+            for col_idx, value in enumerate(row, start=1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                cell.font = cell_font
+                cell.border = thin_border
+                
+                # Форматирование чисел и дат
+                if col_idx in [7, 8, 9, 10, 12, 28]:  # Столбцы с денежными значениями
+                    cell.number_format = '#,##0.00'
+                    cell.alignment = right_alignment
+                    if row_idx % 2 == 0:  # Зебра для читаемости
+                        cell.fill = money_fill
+                elif col_idx == 2:  # Столбец с датой
+                    cell.number_format = 'DD.MM.YYYY'
+                    cell.alignment = center_alignment
+                else:
+                    cell.alignment = left_alignment
+        
+        # Замораживаем заголовки
+        ws.freeze_panes = 'A2'
+        
+        # Добавляем автофильтр
+        ws.auto_filter.ref = ws.dimensions
+        
+        # Добавляем итоговую строку
+        last_row = len(rows) + 1
+        ws.append([""] * len(headers))
+        total_row = last_row + 1
+        
+        # Форматируем итоговую строку
+        for col in range(1, len(headers) + 1):
+            cell = ws.cell(row=total_row, column=col)
+            cell.font = Font(bold=True)
+            cell.border = thin_border
+            
+            # Суммы для денежных столбцов
+            if col in [7, 8, 9, 10, 12, 28]:
+                start_col = get_column_letter(col)
+                formula = f"SUM({start_col}2:{start_col}{last_row})"
+                cell.value = f"=ROUND({formula}, 2)"
+                cell.number_format = '#,##0.00'
+                cell.alignment = right_alignment
+                cell.fill = PatternFill(start_color='D9D9D9', end_color='D9D9D9', fill_type='solid')
+            elif col == 1:
+                cell.value = "Итого:"
+                cell.alignment = right_alignment
         
         buffer = io.BytesIO()
         wb.save(buffer)
@@ -279,7 +363,7 @@ async def export_excel(date_range: DateRange):
         
         return {
             "file": buffer.read().hex(),
-            "filename": f"Отчет_по_отгрузкам_{date_range.start_date}_{date_range.end_date}.xlsx"
+            "filename": f"Отчет_по_отгрузкам_{date_range.start_date}_по_{date_range.end_date}.xlsx"
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
