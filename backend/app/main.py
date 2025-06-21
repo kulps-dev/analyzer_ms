@@ -90,9 +90,7 @@ async def save_to_db(date_range: DateRange):
     conn = None
     try:
         init_db()
-        # Получаем отгрузки с себестоимостью
-        demands = moysklad.get_demands(date_range.start_date, date_range.end_date, include_cost=True)
-        
+        demands = moysklad.get_demands(date_range.start_date, date_range.end_date)
         if not demands:
             return {"message": "Нет данных для сохранения"}
 
@@ -122,10 +120,6 @@ async def save_to_db(date_range: DateRange):
                 overhead_sum = float(overhead_data.get("sum", 0)) / 100  # Делим на 100 для перевода в рубли
                 
                 # Основные данные
-                amount = float(demand.get("sum", 0)) / 100
-                cost_price = demand.get("costPrice", 0)
-                profit = amount - cost_price - overhead_sum
-                
                 values = {
                     "id": str(demand.get("id", ""))[:255],
                     "number": str(demand.get("name", ""))[:50],
@@ -134,10 +128,10 @@ async def save_to_db(date_range: DateRange):
                     "store": str(demand.get("store", {}).get("name", ""))[:255],
                     "project": str(demand.get("project", {}).get("name", "Без проекта"))[:255],
                     "sales_channel": str(demand.get("salesChannel", {}).get("name", "Без канала"))[:255],
-                    "amount": amount,
-                    "cost_price": cost_price,
-                    "overhead": overhead_sum,
-                    "profit": profit,
+                    "amount": float(demand.get("sum", 0)) / 100,
+                    "cost_price": 0,
+                    "overhead": overhead_sum,  # Используем рассчитанные накладные расходы
+                    "profit": 0,
                     "status": str(demand.get("state", {}).get("name", ""))[:100],
                     "comment": str(demand.get("description", ""))[:255]
                 }
