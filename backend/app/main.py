@@ -95,9 +95,21 @@ async def save_to_db(date_range: DateRange):
         cur = conn.cursor()
         
         for demand in demands:
-            # Получаем атрибуты
-            attributes = demand.get("attributes", [])
-            attr_dict = {attr["name"]: attr["value"] for attr in attributes}
+            # Функция для извлечения значения атрибута
+            def get_attribute_value(attr_name, default=""):
+                for attr in demand.get("attributes", []):
+                    if attr["name"] == attr_name:
+                        # Если значение - объект (customentity), берем его name
+                        if isinstance(attr["value"], dict) and "name" in attr["value"]:
+                            return str(attr["value"]["name"])
+                        return str(attr["value"] if attr["value"] is not None else default)
+                return default
+            
+            # Функция для обрезки строк до нужной длины
+            def truncate(value, max_length):
+                if value is None:
+                    return ""
+                return str(value)[:max_length]
             
             # Обрабатываем момент (дату)
             moment = demand.get("moment", "")
@@ -106,37 +118,37 @@ async def save_to_db(date_range: DateRange):
             
             # Подготавливаем значения для вставки
             values = {
-                "id": demand.get("id", ""),
-                "number": demand.get("name", ""),
+                "id": truncate(demand.get("id", ""), 255),
+                "number": truncate(demand.get("name", ""), 50),
                 "date": moment,
-                "counterparty": demand.get("agent", {}).get("name", ""),
-                "store": demand.get("store", {}).get("name", ""),
-                "project": demand.get("project", {}).get("name", ""),
-                "sales_channel": demand.get("salesChannel", {}).get("name", ""),
+                "counterparty": truncate(demand.get("agent", {}).get("name", ""), 255),
+                "store": truncate(demand.get("store", {}).get("name", ""), 255),
+                "project": truncate(demand.get("project", {}).get("name", ""), 255),
+                "sales_channel": truncate(demand.get("salesChannel", {}).get("name", ""), 255),
                 "amount": float(demand.get("sum", 0)) / 100,
                 "cost_price": 0,  # по умолчанию
                 "overhead": 0,   # по умолчанию
                 "profit": 0,     # по умолчанию
-                "promo_period": str(attr_dict.get("Акционный период", "")),
-                "delivery_amount": float(attr_dict.get("Сумма доставки", 0)),
-                "admin_data": str(attr_dict.get("Адмидат", "")),
-                "gdeslon": str(attr_dict.get("ГдеСлон", "")),
-                "cityads": str(attr_dict.get("CityAds", "")),
-                "ozon": str(attr_dict.get("Ozon", "")),
-                "ozon_fbs": str(attr_dict.get("Ozon FBS", "")),
-                "yamarket_fbs": str(attr_dict.get("Яндекс Маркет FBS", "")),
-                "yamarket_dbs": str(attr_dict.get("Яндекс Маркет DBS", "")),
-                "yandex_direct": str(attr_dict.get("Яндекс Директ", "")),
-                "price_ru": str(attr_dict.get("Price ru", "")),
-                "wildberries": str(attr_dict.get("Wildberries", "")),
-                "gis2": str(attr_dict.get("2Gis", "")),
-                "seo": str(attr_dict.get("SEO", "")),
-                "programmatic": str(attr_dict.get("Программатик", "")),
-                "avito": str(attr_dict.get("Авито", "")),
-                "multiorders": str(attr_dict.get("Мультиканальные заказы", "")),
-                "estimated_discount": float(attr_dict.get("Примеренная скидка", 0)),
-                "status": demand.get("state", {}).get("name", ""),
-                "comment": demand.get("description", "")
+                "promo_period": truncate(get_attribute_value("Акционный период"), 100),
+                "delivery_amount": float(get_attribute_value("Сумма доставки", 0)),
+                "admin_data": truncate(get_attribute_value("Адмидат"), 255),
+                "gdeslon": truncate(get_attribute_value("ГдеСлон"), 255),
+                "cityads": truncate(get_attribute_value("CityAds"), 255),
+                "ozon": truncate(get_attribute_value("Ozon"), 255),
+                "ozon_fbs": truncate(get_attribute_value("Ozon FBS"), 255),
+                "yamarket_fbs": truncate(get_attribute_value("Яндекс Маркет FBS"), 255),
+                "yamarket_dbs": truncate(get_attribute_value("Яндекс Маркет DBS"), 255),
+                "yandex_direct": truncate(get_attribute_value("Яндекс Директ"), 255),
+                "price_ru": truncate(get_attribute_value("Price ru"), 255),
+                "wildberries": truncate(get_attribute_value("Wildberries"), 255),
+                "gis2": truncate(get_attribute_value("2Gis"), 255),
+                "seo": truncate(get_attribute_value("SEO"), 255),
+                "programmatic": truncate(get_attribute_value("Программатик"), 255),
+                "avito": truncate(get_attribute_value("Авито"), 255),
+                "multiorders": truncate(get_attribute_value("Мультиканальные заказы"), 255),
+                "estimated_discount": float(get_attribute_value("Примеренная скидка", 0)),
+                "status": truncate(demand.get("state", {}).get("name", ""), 100),
+                "comment": truncate(demand.get("description", ""), 255)
             }
             
             cur.execute("""
