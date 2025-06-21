@@ -90,7 +90,9 @@ async def save_to_db(date_range: DateRange):
     conn = None
     try:
         init_db()
-        demands = moysklad.get_demands(date_range.start_date, date_range.end_date)
+        # Получаем отгрузки с себестоимостью
+        demands = moysklad.get_demands(date_range.start_date, date_range.end_date, include_cost=True)
+        
         if not demands:
             return {"message": "Нет данных для сохранения"}
 
@@ -129,8 +131,11 @@ async def save_to_db(date_range: DateRange):
                     "project": str(demand.get("project", {}).get("name", "Без проекта"))[:255],
                     "sales_channel": str(demand.get("salesChannel", {}).get("name", "Без канала"))[:255],
                     "amount": float(demand.get("sum", 0)) / 100,
-                    "cost_price": 0,
-                    "overhead": overhead_sum,  # Используем рассчитанные накладные расходы
+                    "cost_price": demand.get("costPrice", 0),  # Используем полученную себестоимость
+                    "overhead": overhead_sum,
+                    "profit": (float(demand.get("sum", 0)) / 100) - demand.get("costPrice", 0) - overhead_sum,
+                    "status": str(demand.get("state", {}).get("name", ""))[:100],
+                    "comment": str(demand.get("description", ""))[:255],
                     "profit": 0,
                     "status": str(demand.get("state", {}).get("name", ""))[:100],
                     "comment": str(demand.get("description", ""))[:255]
