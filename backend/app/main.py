@@ -66,7 +66,7 @@ def init_db():
                 seo VARCHAR(255),
                 programmatic VARCHAR(255),
                 avito VARCHAR(255),
-                multiorders NUMERIC(10, 2),
+                multiorders VARCHAR(255),
                 estimated_discount NUMERIC(10, 2),
                 status VARCHAR(100),
                 comment TEXT,
@@ -319,11 +319,18 @@ async def export_excel(date_range: DateRange):
                 cell.border = thin_border
                 
                 # Форматирование чисел и дат
-                if col_idx in [7, 8, 9, 10, 12, 28]:  # Столбцы с денежными значениями
-                    cell.number_format = '#,##0.00'
-                    cell.alignment = right_alignment
-                    if row_idx % 2 == 0:  # Зебра для читаемости
-                        cell.fill = money_fill
+                if col_idx in [7, 8, 9, 10, 12] + list(range(13, 28)):  # Все числовые столбцы (7-10, 12-27)
+                    try:
+                        # Преобразуем значение в число, если возможно
+                        num_value = float(value) if value not in [None, ''] else 0.0
+                        cell.value = num_value
+                        cell.number_format = '#,##0.00'
+                        cell.alignment = right_alignment
+                        if row_idx % 2 == 0:  # Зебра для читаемости
+                            cell.fill = money_fill
+                    except (ValueError, TypeError):
+                        # Если не удалось преобразовать в число, оставляем как есть
+                        cell.alignment = left_alignment
                 elif col_idx == 2:  # Столбец с датой
                     cell.number_format = 'DD.MM.YYYY'
                     cell.alignment = center_alignment
@@ -347,8 +354,8 @@ async def export_excel(date_range: DateRange):
             cell.font = Font(bold=True)
             cell.border = thin_border
             
-            # Суммы для денежных столбцов
-            if col in [7, 8, 9, 10, 12, 28]:
+            # Суммы для денежных столбцов (7-10, 12-27)
+            if col in [7, 8, 9, 10, 12] + list(range(13, 28)):
                 start_col = get_column_letter(col)
                 formula = f"SUM({start_col}2:{start_col}{last_row})"
                 cell.value = f"=ROUND({formula}, 2)"
