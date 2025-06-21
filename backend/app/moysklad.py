@@ -36,6 +36,29 @@ class MoyskladAPI:
         response.raise_for_status()
         return response.json()
 
+    def get_demand_cost(self, demand_id: str):
+        """Получить себестоимость товаров в отгрузке"""
+        url = f"{self.base_url}/report/stock/byoperation"
+        params = {
+            "operation.id": demand_id
+        }
+        
+        try:
+            response = requests.get(url, headers=self.headers, params=params)
+            response.raise_for_status()
+            data = response.json()
+            
+            total_cost = 0
+            if data and "positions" in data[0]:
+                for position in data[0]["positions"]:
+                    cost = position.get("cost", 0)
+                    total_cost += cost / 100  # Делим на 100, как указано
+            
+            return total_cost
+        except Exception as e:
+            print(f"Ошибка при получении себестоимости для отгрузки {demand_id}: {e}")
+            return 0
+
     def get_demands(self, start_date: str, end_date: str):
         """Получить отгрузки за период"""
         url = f"{self.base_url}/entity/demand"
@@ -108,5 +131,9 @@ class MoyskladAPI:
                             attr["value"] = False
                         elif attr["type"] == "string":
                             attr["value"] = ""
+            
+            # Получаем себестоимость для каждой отгрузки
+            demand_id = demand["id"]
+            demand["costPrice"] = self.get_demand_cost(demand_id)
         
         return demands
