@@ -7,6 +7,9 @@ from datetime import datetime
 import os
 from openpyxl import Workbook
 import io
+from openpyxl.utils import get_column_letter
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from datetime import datetime,
 
 app = FastAPI()
 
@@ -243,6 +246,7 @@ async def export_excel(date_range: DateRange):
         conn = get_db_connection()
         cur = conn.cursor()
         
+        # Получаем данные из БД
         cur.execute("""
             SELECT 
                 number, date, counterparty, store, project, sales_channel,
@@ -257,6 +261,7 @@ async def export_excel(date_range: DateRange):
         
         rows = cur.fetchall()
         
+        # Создаем новую книгу Excel
         wb = Workbook()
         ws = wb.active
         ws.title = "Отчет по отгрузкам"
@@ -266,43 +271,40 @@ async def export_excel(date_range: DateRange):
         ws.page_setup.paperSize = ws.PAPERSIZE_A4
         ws.page_setup.fitToWidth = 1
         
-        # Заголовки столбцов
+        # Заголовки столбцов (сокращенные для лучшего отображения)
         headers = [
-            "Номер", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
+            "Номер", "Дата", "Контрагент", "Склад", "Проект", "Канал",
             "Сумма", "Себест.", "Накл.расх.", "Прибыль", "Акция", "Доставка",
             "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS",
-            "ЯМ FBS", "ЯМ DBS", "Яндекс Директ", "Price ru",
-            "WB", "2ГИС", "SEO", "Програм.", "Авито", "Мультизак.",
+            "ЯМ FBS", "ЯМ DBS", "Я.Директ", "Price ru",
+            "WB", "2ГИС", "SEO", "Програм.", "Авито", "Мультиз.",
             "Скидка"
         ]
         
         # Ширина столбцов
-        column_widths = [
-            10, 15, 25, 15, 15, 15,
-            10, 10, 10, 10, 15, 10,
-            10, 10, 10, 10, 10,
-            10, 10, 15, 10,
-            10, 10, 10, 10, 10, 10,
-            10
-        ]
+        column_widths = [10, 16, 25, 15, 15, 12, 10, 8, 8, 8, 12, 8, 
+                        8, 8, 8, 8, 8, 8, 8, 10, 8, 8, 8, 8, 8, 8, 8]
         
         for i, width in enumerate(column_widths, 1):
             ws.column_dimensions[get_column_letter(i)].width = width
         
         # Стили
-        header_font = Font(bold=True, color="FFFFFF")
-        header_fill = PatternFill(start_color="4F81BD", end_color="4F81BD", fill_type="solid")
+        header_font = Font(bold=True, color="FFFFFF", size=10)
+        header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
         header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         
         money_format = '# ##0.00 ₽'
         date_format = 'dd.mm.yyyy hh:mm'
+        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
+                          top=Side(style='thin'), bottom=Side(style='thin'))
         
         # Заголовок отчета
-        ws.append(["Отчет по отгрузкам с {} по {}".format(
-            date_range.start_date[:10], date_range.end_date[:10])])
+        title = f"Отчет по отгрузкам с {date_range.start_date[:10]} по {date_range.end_date[:10]}"
+        ws.append([title])
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(headers))
-        ws['A1'].font = Font(bold=True, size=14)
-        ws['A1'].alignment = Alignment(horizontal="center")
+        title_cell = ws['A1']
+        title_cell.font = Font(bold=True, size=12)
+        title_cell.alignment = Alignment(horizontal="center")
         
         # Пустая строка
         ws.append([])
@@ -315,60 +317,55 @@ async def export_excel(date_range: DateRange):
             cell.font = header_font
             cell.fill = header_fill
             cell.alignment = header_alignment
-            cell.border = Border(left=Side(style='thin'), 
-                               right=Side(style='thin'), 
-                               top=Side(style='thin'), 
-                               bottom=Side(style='thin'))
+            cell.border = thin_border
         
         # Добавляем данные
         for row in rows:
             formatted_row = list(row)
+            
             # Форматируем дату
             if isinstance(formatted_row[1], (datetime, date)):
                 formatted_row[1] = formatted_row[1].strftime('%d.%m.%Y %H:%M')
-            
-            # Форматируем денежные значения
-            money_columns = [6, 7, 8, 9, 11]  # Индексы денежных столбцов (нумерация с 0)
-            for idx in money_columns:
-                if formatted_row[idx] is not None:
-                    formatted_row[idx] = float(formatted_row[idx])
+            elif formatted_row[1]:
+                try:
+                    dt = datetime.strptime(formatted_row[1], '%Y-%m-%d %H:%M:%S')
+                    formatted_row[1] = dt.strftime('%d.%m.%Y %H:%M')
+                except:
+                    formatted_row[1] = formatted_row[1][:10]  # Берем только дату, если не удается распарсить
             
             ws.append(formatted_row)
         
         # Применяем стили к данным
         for row in ws.iter_rows(min_row=4, max_row=ws.max_row, max_col=len(headers)):
             for cell in row:
-                cell.border = Border(left=Side(style='thin'), 
-                                   right=Side(style='thin'), 
-                                   top=Side(style='thin'), 
-                                   bottom=Side(style='thin'))
+                cell.border = thin_border
                 
-                # Выравнивание для разных типов данных
+                # Выравнивание
                 if cell.column in [1, 2]:  # Номер и дата
                     cell.alignment = Alignment(horizontal="center")
-                elif cell.column in range(7, 12):  # Числовые столбцы
-                    cell.number_format = money_format
+                elif cell.column in [7, 8, 9, 10, 12]:  # Денежные столбцы
+                    if isinstance(cell.value, (int, float)):
+                        cell.number_format = money_format
                     cell.alignment = Alignment(horizontal="right")
                 else:
-                    cell.alignment = Alignment(horizontal="left")
+                    cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
         
         # Итоговая строка
         if len(rows) > 0:
             last_row = ws.max_row + 1
             ws.cell(row=last_row, column=1, value="Итого:").font = Font(bold=True)
             
-            # Суммы для денежных столбцов
-            money_cols = ['G', 'H', 'I', 'J', 'L']
-            for col in money_cols:
-                col_letter = col
+            # Суммы для денежных столбцов (G=7, H=8, I=9, J=10, L=12)
+            for col in [7, 8, 9, 10, 12]:
+                col_letter = get_column_letter(col)
                 formula = f"=SUM({col_letter}4:{col_letter}{last_row-1})"
-                ws.cell(row=last_row, column=ord(col_letter) - 64, value=formula)
-                ws.cell(row=last_row, column=ord(col_letter) - 64).number_format = money_format
-                ws.cell(row=last_row, column=ord(col_letter) - 64).font = Font(bold=True)
+                ws.cell(row=last_row, column=col, value=formula).number_format = money_format
+                ws.cell(row=last_row, column=col).font = Font(bold=True)
         
         # Замораживаем заголовки
         ws.freeze_panes = 'A4'
         
+        # Сохраняем в буфер
         buffer = io.BytesIO()
         wb.save(buffer)
         buffer.seek(0)
@@ -377,6 +374,7 @@ async def export_excel(date_range: DateRange):
             "file": buffer.read().hex(),
             "filename": f"Отчет_по_отгрузкам_{date_range.start_date[:10]}_{date_range.end_date[:10]}.xlsx"
         }
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
