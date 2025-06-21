@@ -13,6 +13,8 @@ import io
 import asyncio
 from typing import List
 import logging
+import time
+
 
 # Настройка логгирования
 logging.basicConfig(level=logging.INFO)
