@@ -138,24 +138,24 @@ async def save_to_db(date_range: DateRange):
 
                 # Остальная обработка атрибутов остается без изменений
                 attr_fields = {
-                    "promo_period": ("Акционный период", 100),
-                    "delivery_amount": ("Сумма доставки", 0.0),
-                    "admin_data": ("Адмидат", ""),
-                    "gdeslon": ("ГдеСлон", ""),
-                    "cityads": ("CityAds", ""),
-                    "ozon": ("Ozon", ""),
-                    "ozon_fbs": ("Ozon FBS", ""),
-                    "yamarket_fbs": ("Яндекс Маркет FBS", ""),
-                    "yamarket_dbs": ("Яндекс Маркет DBS", ""),
-                    "yandex_direct": ("Яндекс Директ", ""),
-                    "price_ru": ("Price ru", ""),
-                    "wildberries": ("Wildberries", ""),
-                    "gis2": ("2Gis", ""),
-                    "seo": ("SEO", ""),
-                    "programmatic": ("Программатик", ""),
-                    "avito": ("Авито", ""),
-                    "multiorders": ("Мультиканальные заказы", ""),
-                    "estimated_discount": ("Примеренная скидка", 0.0)
+                    "promo_period": ("Акционный период", ""),
+                    "delivery_amount": ("Сумма доставки", 0),
+                    "admin_data": ("Адмидат", 0),
+                    "gdeslon": ("ГдеСлон", 0),
+                    "cityads": ("CityAds", 0),
+                    "ozon": ("Ozon", 0),
+                    "ozon_fbs": ("Ozon FBS", 0),
+                    "yamarket_fbs": ("Яндекс Маркет FBS", 0),
+                    "yamarket_dbs": ("Яндекс Маркет DBS", 0),
+                    "yandex_direct": ("Яндекс Директ", 0),
+                    "price_ru": ("Price ru", 0),
+                    "wildberries": ("Wildberries", 0),
+                    "gis2": ("2Gis", 0),
+                    "seo": ("SEO", 0),
+                    "programmatic": ("Программатик", 0),
+                    "avito": ("Авито", 0),
+                    "multiorders": ("Мультиканальные заказы", 0),
+                    "estimated_discount": ("Примеренная скидка", 0)
                 }
 
                 for field, (attr_name, default) in attr_fields.items():
