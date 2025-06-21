@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import psycopg2
-from moysklad import MoyskladAPI
+from .moysklad import MoyskladAPI
 from datetime import datetime
 import os
 from openpyxl import Workbook
@@ -99,9 +99,26 @@ async def save_to_db(date_range: DateRange):
         
         saved_count = 0
         
+        # Функция для безопасного извлечения атрибутов
+        def get_attr_value(attrs, attr_name, default=""):
+            if not attrs:
+                return default
+            for attr in attrs:
+                if attr.get("name") == attr_name:
+                    value = attr.get("value")
+                    if isinstance(value, dict):
+                        return value.get("name", str(value))
+                    return str(value) if value is not None else default
+            return default
+        
         for demand in demands:
             try:
                 demand_id = str(demand.get("id", ""))
+                attributes = demand.get("attributes", [])
+                
+                # Обработка накладных расходов (overhead)
+                overhead_data = demand.get("overhead", {})
+                overhead_sum = float(overhead_data.get("sum", 0)) / 100  # Делим на 100 для перевода в рубли
                 
                 # Получаем себестоимость
                 cost_price = moysklad.get_demand_cost_price(demand_id)
@@ -116,14 +133,14 @@ async def save_to_db(date_range: DateRange):
                     "project": str(demand.get("project", {}).get("name", "Без проекта"))[:255],
                     "sales_channel": str(demand.get("salesChannel", {}).get("name", "Без канала"))[:255],
                     "amount": float(demand.get("sum", 0)) / 100,
-                    "cost_price": cost_price,  # Используем полученную себестоимость
+                    "cost_price": cost_price,
                     "overhead": overhead_sum,
-                    "profit": (float(demand.get("sum", 0)) / 100) - cost_price - overhead_sum,  # Рассчитываем прибыль
+                    "profit": (float(demand.get("sum", 0)) / 100) - cost_price - overhead_sum,
                     "status": str(demand.get("state", {}).get("name", ""))[:100],
                     "comment": str(demand.get("description", ""))[:255]
                 }
 
-                # Остальная обработка атрибутов остается без изменений
+                # Обработка атрибутов
                 attr_fields = {
                     "promo_period": ("Акционный период", ""),
                     "delivery_amount": ("Сумма доставки", 0),
@@ -154,10 +171,8 @@ async def save_to_db(date_range: DateRange):
                     else:
                         values[field] = str(get_attr_value(attributes, attr_name, default))[:255]
                 
-                # Логирование для отладки
                 print(f"Данные для сохранения: {values}")
 
-                # SQL-запрос (без изменений)
                 cur.execute("""
                     INSERT INTO demands (
                         id, number, date, counterparty, store, project, sales_channel, 
