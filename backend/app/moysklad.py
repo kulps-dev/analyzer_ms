@@ -1,7 +1,10 @@
+# moysklad.py
+
 import requests
 import io
 from openpyxl import Workbook
 from datetime import datetime
+import time
 
 class MoyskladAPI:
     def __init__(self, token: str):
@@ -11,30 +14,42 @@ class MoyskladAPI:
             "Accept-Encoding": "gzip",
             "Content-Type": "application/json"
         }
+        self.session = requests.Session()
+        self.session.headers.update(self.headers)
+        self.retry_delay = 5  # seconds
+        self.max_retries = 3
+
+    def _make_request(self, url, params=None, method='GET'):
+        for attempt in range(self.max_retries):
+            try:
+                if method == 'GET':
+                    response = self.session.get(url, params=params, timeout=30)
+                else:
+                    raise ValueError(f"Unsupported method: {method}")
+                
+                response.raise_for_status()
+                return response.json()
+            
+            except requests.exceptions.RequestException as e:
+                if attempt == self.max_retries - 1:
+                    raise
+                time.sleep(self.retry_delay * (attempt + 1))
 
     def get_counterparty(self, counterparty_url: str):
         """Получить информацию о контрагенте по URL"""
-        response = requests.get(counterparty_url, headers=self.headers)
-        response.raise_for_status()
-        return response.json()
+        return self._make_request(counterparty_url)
 
     def get_store(self, store_url: str):
         """Получить информацию о складе по URL"""
-        response = requests.get(store_url, headers=self.headers)
-        response.raise_for_status()
-        return response.json()
+        return self._make_request(store_url)
 
     def get_project(self, project_url: str):
         """Получить информацию о проекте по URL"""
-        response = requests.get(project_url, headers=self.headers)
-        response.raise_for_status()
-        return response.json()
+        return self._make_request(project_url)
 
     def get_sales_channel(self, sales_channel_url: str):
         """Получить информацию о канале продаж по URL"""
-        response = requests.get(sales_channel_url, headers=self.headers)
-        response.raise_for_status()
-        return response.json()
+        return self._make_request(sales_channel_url)
 
     def get_demand_cost_price(self, demand_id: str):
         """Получить себестоимость отгрузки"""
@@ -45,9 +60,7 @@ class MoyskladAPI:
         }
         
         try:
-            response = requests.get(url, headers=self.headers, params=params)
-            response.raise_for_status()
-            data = response.json()
+            data = self._make_request(url, params=params)
             
             total_cost = 0
             if "rows" in data and len(data["rows"]) > 0:
@@ -63,7 +76,7 @@ class MoyskladAPI:
             return 0
 
     def get_demands(self, start_date: str, end_date: str):
-        """Получить отгрузки за период"""
+        """Получить отгрузки за период с пагинацией"""
         url = f"{self.base_url}/entity/demand"
         
         start_date = start_date.split(' ')[0].split('T')[0]
@@ -71,56 +84,61 @@ class MoyskladAPI:
         
         filter_str = f"moment>={start_date} 00:00:00;moment<={end_date} 23:59:59"
         
-        params = {
-            "filter": filter_str,
-            "limit": 1000,
-            "expand": "agent,store,project,salesChannel"
-        }
+        all_demands = []
+        offset = 0
+        limit = 1000
         
-        print(f"Отправляемый запрос: {url}?{requests.models.RequestEncodingMixin._encode_params(params)}")
-        
-        response = requests.get(url, headers=self.headers, params=params)
-        response.raise_for_status()
-        demands = response.json()["rows"]
+        while True:
+            params = {
+                "filter": filter_str,
+                "limit": limit,
+                "offset": offset,
+                "expand": "agent,store,project,salesChannel"
+            }
+            
+            try:
+                response = self._make_request(url, params=params)
+                demands = response.get("rows", [])
+                
+                if not demands:
+                    break
+                
+                all_demands.extend(demands)
+                offset += limit
+                
+                # Если получено меньше запрошенного количества, значит это последняя страница
+                if len(demands) < limit:
+                    break
+                    
+            except Exception as e:
+                print(f"Ошибка при получении отгрузок (offset {offset}): {str(e)}")
+                break
         
         # Дополнительно получаем полные данные, если они не были получены через expand
-        for demand in demands:
-            if "agent" in demand and "name" not in demand["agent"]:
-                try:
+        for demand in all_demands:
+            try:
+                if "agent" in demand and "name" not in demand["agent"]:
                     counterparty_url = demand["agent"]["meta"]["href"]
                     counterparty_data = self.get_counterparty(counterparty_url)
                     demand["agent"]["name"] = counterparty_data.get("name", "")
-                except Exception as e:
-                    print(f"Ошибка при получении контрагента: {e}")
-                    demand["agent"]["name"] = "Не удалось получить"
-            
-            if "store" in demand and "name" not in demand["store"]:
-                try:
+                
+                if "store" in demand and "name" not in demand["store"]:
                     store_url = demand["store"]["meta"]["href"]
                     store_data = self.get_store(store_url)
                     demand["store"]["name"] = store_data.get("name", "")
-                except Exception as e:
-                    print(f"Ошибка при получении склада: {e}")
-                    demand["store"]["name"] = "Не удалось получить"
-            
-            # Обработка проекта
-            if "project" in demand and ("name" not in demand["project"] or not demand["project"]["name"]):
-                try:
+                
+                if "project" in demand and ("name" not in demand["project"] or not demand["project"]["name"]):
                     project_url = demand["project"]["meta"]["href"]
                     project_data = self.get_project(project_url)
                     demand["project"]["name"] = project_data.get("name", "Без проекта")
-                except Exception as e:
-                    print(f"Ошибка при получении проекта: {e}")
-                    demand["project"] = {"name": "Без проекта"}
-            
-            # Обработка канала продаж
-            if "salesChannel" in demand and ("name" not in demand["salesChannel"] or not demand["salesChannel"]["name"]):
-                try:
+                
+                if "salesChannel" in demand and ("name" not in demand["salesChannel"] or not demand["salesChannel"]["name"]):
                     sales_channel_url = demand["salesChannel"]["meta"]["href"]
                     sales_channel_data = self.get_sales_channel(sales_channel_url)
                     demand["salesChannel"]["name"] = sales_channel_data.get("name", "Без канала")
-                except Exception as e:
-                    print(f"Ошибка при получении канала продаж: {e}")
-                    demand["salesChannel"] = {"name": "Без канала"}
+            
+            except Exception as e:
+                print(f"Ошибка при обработке отгрузки {demand.get('id')}: {str(e)}")
+                continue
         
-        return demands
+        return all_demands
