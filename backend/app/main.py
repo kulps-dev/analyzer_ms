@@ -131,7 +131,7 @@ async def save_to_db(date_range: DateRange):
                     "amount": float(demand.get("sum", 0)) / 100,
                     "cost_price": float(demand.get("costPrice", 0)),  # Используем полученную себестоимость
                     "overhead": overhead_sum,
-                    "profit": float(demand.get("sum", 0)) / 100 - float(demand.get("costPrice", 0)) - overhead_sum,  # Рассчитываем прибыль
+                    "profit": float(demand.get("sum", 0)) / 100 - float(demand.get("costPrice", 0)) - overhead_sum,
                     "status": str(demand.get("state", {}).get("name", ""))[:100],
                     "comment": str(demand.get("description", ""))[:255]
                 }
