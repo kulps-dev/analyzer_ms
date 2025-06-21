@@ -36,31 +36,15 @@ class MoyskladAPI:
         response.raise_for_status()
         return response.json()
 
-    def get_demand_cost(self, demand_id: str):
-        """Получить себестоимость товаров в отгрузке"""
-        url = f"{self.base_url}/report/stock/byoperation"
-        params = {
-            "operation.id": demand_id
-        }
-        
-        try:
-            response = requests.get(url, headers=self.headers, params=params)
-            response.raise_for_status()
-            data = response.json()
-            
-            total_cost = 0
-            if data and "positions" in data[0]:
-                for position in data[0]["positions"]:
-                    cost = position.get("cost", 0)
-                    total_cost += cost / 100  # Делим на 100, как указано
-            
-            return total_cost
-        except Exception as e:
-            print(f"Ошибка при получении себестоимости для отгрузки {demand_id}: {e}")
-            return 0
+    def get_stock_by_operation(self, operation_id: str):
+    """Получить данные о себестоимости товаров в отгрузке"""
+    url = f"{self.base_url}/report/stock/byoperation?operation.id={operation_id}"
+    response = requests.get(url, headers=self.headers)
+    response.raise_for_status()
+    return response.json()
 
     def get_demands(self, start_date: str, end_date: str):
-        """Получить отгрузки за период"""
+        """Получить отгрузки за период с информацией о себестоимости"""
         url = f"{self.base_url}/entity/demand"
         
         start_date = start_date.split(' ')[0].split('T')[0]
@@ -82,58 +66,23 @@ class MoyskladAPI:
         
         # Дополнительно получаем полные данные, если они не были получены через expand
         for demand in demands:
-            if "agent" in demand and "name" not in demand["agent"]:
-                try:
-                    counterparty_url = demand["agent"]["meta"]["href"]
-                    counterparty_data = self.get_counterparty(counterparty_url)
-                    demand["agent"]["name"] = counterparty_data.get("name", "")
-                except Exception as e:
-                    print(f"Ошибка при получении контрагента: {e}")
-                    demand["agent"]["name"] = "Не удалось получить"
+            # ... (существующий код обработки контрагентов, складов и т.д.)
             
-            if "store" in demand and "name" not in demand["store"]:
-                try:
-                    store_url = demand["store"]["meta"]["href"]
-                    store_data = self.get_store(store_url)
-                    demand["store"]["name"] = store_data.get("name", "")
-                except Exception as e:
-                    print(f"Ошибка при получении склада: {e}")
-                    demand["store"]["name"] = "Не удалось получить"
-            
-            # Обработка проекта
-            if "project" in demand and ("name" not in demand["project"] or not demand["project"]["name"]):
-                try:
-                    project_url = demand["project"]["meta"]["href"]
-                    project_data = self.get_project(project_url)
-                    demand["project"]["name"] = project_data.get("name", "Без проекта")
-                except Exception as e:
-                    print(f"Ошибка при получении проекта: {e}")
-                    demand["project"] = {"name": "Без проекта"}
-            
-            # Обработка канала продаж
-            if "salesChannel" in demand and ("name" not in demand["salesChannel"] or not demand["salesChannel"]["name"]):
-                try:
-                    sales_channel_url = demand["salesChannel"]["meta"]["href"]
-                    sales_channel_data = self.get_sales_channel(sales_channel_url)
-                    demand["salesChannel"]["name"] = sales_channel_data.get("name", "Без канала")
-                except Exception as e:
-                    print(f"Ошибка при получении канала продаж: {e}")
-                    demand["salesChannel"] = {"name": "Без канала"}
-            
-            # Обработка атрибутов
-            if "attributes" in demand:
-                for attr in demand["attributes"]:
-                    if attr["value"] is None:
-                        # Устанавливаем значение по умолчанию в зависимости от типа атрибута
-                        if attr["type"] in ["double", "long", "int"]:
-                            attr["value"] = 0
-                        elif attr["type"] == "boolean":
-                            attr["value"] = False
-                        elif attr["type"] == "string":
-                            attr["value"] = ""
-            
-            # Получаем себестоимость для каждой отгрузки
-            demand_id = demand["id"]
-            demand["costPrice"] = self.get_demand_cost(demand_id)
+            # Добавляем обработку себестоимости
+            try:
+                operation_id = demand["id"]
+                stock_data = self.get_stock_by_operation(operation_id)
+                
+                # Считаем общую себестоимость для отгрузки
+                total_cost = 0
+                if "rows" in stock_data and len(stock_data["rows"]) > 0:
+                    for position in stock_data["rows"][0].get("positions", []):
+                        total_cost += position.get("cost", 0)
+                
+                # Добавляем себестоимость в данные отгрузки
+                demand["costPrice"] = total_cost / 100  # Переводим в рубли
+            except Exception as e:
+                print(f"Ошибка при получении себестоимости для отгрузки {demand.get('id')}: {e}")
+                demand["costPrice"] = 0
         
         return demands

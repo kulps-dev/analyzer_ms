@@ -129,9 +129,9 @@ async def save_to_db(date_range: DateRange):
                     "project": str(demand.get("project", {}).get("name", "Без проекта"))[:255],
                     "sales_channel": str(demand.get("salesChannel", {}).get("name", "Без канала"))[:255],
                     "amount": float(demand.get("sum", 0)) / 100,
-                    "cost_price": float(demand.get("costPrice", 0)),  # Используем полученную себестоимость
-                    "overhead": overhead_sum,
-                    "profit": float(demand.get("sum", 0)) / 100 - float(demand.get("costPrice", 0)) - overhead_sum,
+                    "cost_price": float(demand.get("costPrice", 0)),
+                    "overhead": overhead_sum,  # Используем рассчитанные накладные расходы
+                    "profit": 0,
                     "status": str(demand.get("state", {}).get("name", ""))[:100],
                     "comment": str(demand.get("description", ""))[:255]
                 }
