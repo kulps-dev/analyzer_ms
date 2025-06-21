@@ -36,6 +36,32 @@ class MoyskladAPI:
         response.raise_for_status()
         return response.json()
 
+    def get_demand_cost_price(self, demand_id: str):
+        """Получить себестоимость отгрузки"""
+        url = f"{self.base_url}/report/stock/byoperation"
+        params = {
+            "operation.id": demand_id,
+            "limit": 1000
+        }
+        
+        try:
+            response = requests.get(url, headers=self.headers, params=params)
+            response.raise_for_status()
+            data = response.json()
+            
+            total_cost = 0
+            if "rows" in data and len(data["rows"]) > 0:
+                for position in data["rows"][0].get("positions", []):
+                    cost = position.get("cost", 0)
+                    quantity = position.get("quantity", 1)
+                    total_cost += cost * quantity
+            
+            return total_cost / 100  # Переводим в рубли
+        
+        except Exception as e:
+            print(f"Ошибка при получении себестоимости для отгрузки {demand_id}: {str(e)}")
+            return 0
+
     def get_demands(self, start_date: str, end_date: str):
         """Получить отгрузки за период"""
         url = f"{self.base_url}/entity/demand"
@@ -48,7 +74,7 @@ class MoyskladAPI:
         params = {
             "filter": filter_str,
             "limit": 1000,
-            "expand": "agent,store,project,salesChannel,attributes"
+            "expand": "agent,store,project,salesChannel"
         }
         
         print(f"Отправляемый запрос: {url}?{requests.models.RequestEncodingMixin._encode_params(params)}")
@@ -96,17 +122,5 @@ class MoyskladAPI:
                 except Exception as e:
                     print(f"Ошибка при получении канала продаж: {e}")
                     demand["salesChannel"] = {"name": "Без канала"}
-            
-            # Обработка атрибутов
-            if "attributes" in demand:
-                for attr in demand["attributes"]:
-                    if attr["value"] is None:
-                        # Устанавливаем значение по умолчанию в зависимости от типа атрибута
-                        if attr["type"] in ["double", "long", "int"]:
-                            attr["value"] = 0
-                        elif attr["type"] == "boolean":
-                            attr["value"] = False
-                        elif attr["type"] == "string":
-                            attr["value"] = ""
         
         return demands

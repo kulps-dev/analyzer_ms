@@ -101,27 +101,14 @@ async def save_to_db(date_range: DateRange):
         
         for demand in demands:
             try:
-                # Функция для безопасного извлечения атрибутов
-                def get_attr_value(attrs, attr_name, default=""):
-                    if not attrs:
-                        return default
-                    for attr in attrs:
-                        if attr.get("name") == attr_name:
-                            value = attr.get("value")
-                            if isinstance(value, dict):
-                                return value.get("name", str(value))
-                            return str(value) if value is not None else default
-                    return default
-
-                attributes = demand.get("attributes", [])
+                demand_id = str(demand.get("id", ""))
                 
-                # Обработка накладных расходов (overhead)
-                overhead_data = demand.get("overhead", {})
-                overhead_sum = float(overhead_data.get("sum", 0)) / 100  # Делим на 100 для перевода в рубли
+                # Получаем себестоимость
+                cost_price = moysklad.get_demand_cost_price(demand_id)
                 
                 # Основные данные
                 values = {
-                    "id": str(demand.get("id", ""))[:255],
+                    "id": demand_id[:255],
                     "number": str(demand.get("name", ""))[:50],
                     "date": demand.get("moment", ""),
                     "counterparty": str(demand.get("agent", {}).get("name", ""))[:255],
@@ -129,9 +116,9 @@ async def save_to_db(date_range: DateRange):
                     "project": str(demand.get("project", {}).get("name", "Без проекта"))[:255],
                     "sales_channel": str(demand.get("salesChannel", {}).get("name", "Без канала"))[:255],
                     "amount": float(demand.get("sum", 0)) / 100,
-                    "cost_price": 0,
-                    "overhead": overhead_sum,  # Используем рассчитанные накладные расходы
-                    "profit": 0,
+                    "cost_price": cost_price,  # Используем полученную себестоимость
+                    "overhead": overhead_sum,
+                    "profit": (float(demand.get("sum", 0)) / 100) - cost_price - overhead_sum,  # Рассчитываем прибыль
                     "status": str(demand.get("state", {}).get("name", ""))[:100],
                     "comment": str(demand.get("description", ""))[:255]
                 }
