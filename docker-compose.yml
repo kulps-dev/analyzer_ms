@@ -11,6 +11,8 @@ services:
     restart: unless-stopped
     environment:
       - PYTHONUNBUFFERED=1
+      - UVICORN_WORKERS=4  # Увеличиваем количество воркеров
+      - UVICORN_TIMEOUT=120  # Увеличиваем таймаут
 
   frontend:
     build:

@@ -1,12 +1,20 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import psycopg2
+from psycopg2.extras import execute_batch
 from .moysklad import MoyskladAPI
 from datetime import datetime
 import os
 from openpyxl import Workbook
 import io
+import asyncio
+from typing import List, Dict, Any
+import logging
+
+# Настройка логгера
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -28,215 +36,276 @@ class DateRange(BaseModel):
     start_date: str
     end_date: str
 
+class BatchProcessResponse(BaseModel):
+    task_id: str
+    status: str
+    message: str
+
+# Глобальный словарь для хранения статусов задач
+tasks_status = {}
+
 def get_db_connection():
     return psycopg2.connect(**DB_CONFIG)
 
-def init_db():
-    """Инициализация таблицы в базе данных"""
+async def process_demands_batch(demands: List[Dict[str, Any]], task_id: str):
+    """Асинхронная обработка пакета отгрузок"""
     conn = None
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS demands (
-                id VARCHAR(255) PRIMARY KEY,
-                number VARCHAR(50),
-                date TIMESTAMP,
-                counterparty VARCHAR(255),
-                store VARCHAR(255),
-                project VARCHAR(255),
-                sales_channel VARCHAR(255),
-                amount NUMERIC(10, 2),
-                cost_price NUMERIC(10, 2),
-                overhead NUMERIC(10, 2),
-                profit NUMERIC(10, 2),
-                promo_period VARCHAR(100),
-                delivery_amount NUMERIC(10, 2),
-                admin_data VARCHAR(255),
-                gdeslon VARCHAR(255),
-                cityads VARCHAR(255),
-                ozon VARCHAR(255),
-                ozon_fbs VARCHAR(255),
-                yamarket_fbs VARCHAR(255),
-                yamarket_dbs VARCHAR(255),
-                yandex_direct VARCHAR(255),
-                price_ru VARCHAR(255),
-                wildberries VARCHAR(255),
-                gis2 VARCHAR(255),
-                seo VARCHAR(255),
-                programmatic VARCHAR(255),
-                avito VARCHAR(255),
-                multiorders VARCHAR(255),
-                estimated_discount NUMERIC(10, 2),
-                status VARCHAR(100),
-                comment TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        conn.commit()
-    except Exception as e:
-        print(f"Ошибка при инициализации БД: {e}")
-        if conn:
-            conn.rollback()
-    finally:
-        if conn:
-            conn.close()
-
-# Инициализация БД при старте
-init_db()
-
-@app.post("/api/save-to-db")
-async def save_to_db(date_range: DateRange):
-    conn = None
-    try:
-        init_db()
-        demands = moysklad.get_demands(date_range.start_date, date_range.end_date)
-        if not demands:
-            return {"message": "Нет данных для сохранения"}
-
         conn = get_db_connection()
         cur = conn.cursor()
         
+        batch_size = 100  # Размер пакета для вставки
         saved_count = 0
+        total_count = len(demands)
         
-        # Функция для безопасного извлечения атрибутов
-        def get_attr_value(attrs, attr_name, default=""):
-            if not attrs:
-                return default
-            for attr in attrs:
-                if attr.get("name") == attr_name:
-                    value = attr.get("value")
-                    if isinstance(value, dict):
-                        return value.get("name", str(value))
-                    return str(value) if value is not None else default
-            return default
+        # Подготовка данных для batch-вставки
+        batch_values = []
         
         for demand in demands:
             try:
-                demand_id = str(demand.get("id", ""))
-                attributes = demand.get("attributes", [])
+                values = prepare_demand_data(demand)
+                batch_values.append(values)
                 
-                # Обработка накладных расходов (overhead)
-                overhead_data = demand.get("overhead", {})
-                overhead_sum = float(overhead_data.get("sum", 0)) / 100  # Делим на 100 для перевода в рубли
-                
-                # Получаем себестоимость
-                cost_price = moysklad.get_demand_cost_price(demand_id)
-                
-                # Основные данные
-                values = {
-                    "id": demand_id[:255],
-                    "number": str(demand.get("name", ""))[:50],
-                    "date": demand.get("moment", ""),
-                    "counterparty": str(demand.get("agent", {}).get("name", ""))[:255],
-                    "store": str(demand.get("store", {}).get("name", ""))[:255],
-                    "project": str(demand.get("project", {}).get("name", "Без проекта"))[:255],
-                    "sales_channel": str(demand.get("salesChannel", {}).get("name", "Без канала"))[:255],
-                    "amount": float(demand.get("sum", 0)) / 100,
-                    "cost_price": cost_price,
-                    "overhead": overhead_sum,
-                    "profit": (float(demand.get("sum", 0)) / 100) - cost_price - overhead_sum,
-                    "status": str(demand.get("state", {}).get("name", ""))[:100],
-                    "comment": str(demand.get("description", ""))[:255]
-                }
-
-                # Обработка атрибутов
-                attr_fields = {
-                    "promo_period": ("Акционный период", ""),
-                    "delivery_amount": ("Сумма доставки", 0),
-                    "admin_data": ("Адмидат", 0),
-                    "gdeslon": ("ГдеСлон", 0),
-                    "cityads": ("CityAds", 0),
-                    "ozon": ("Ozon", 0),
-                    "ozon_fbs": ("Ozon FBS", 0),
-                    "yamarket_fbs": ("Яндекс Маркет FBS", 0),
-                    "yamarket_dbs": ("Яндекс Маркет DBS", 0),
-                    "yandex_direct": ("Яндекс Директ", 0),
-                    "price_ru": ("Price ru", 0),
-                    "wildberries": ("Wildberries", 0),
-                    "gis2": ("2Gis", 0),
-                    "seo": ("SEO", 0),
-                    "programmatic": ("Программатик", 0),
-                    "avito": ("Авито", 0),
-                    "multiorders": ("Мультиканальные заказы", 0),
-                    "estimated_discount": ("Примеренная скидка", 0)
-                }
-
-                for field, (attr_name, default) in attr_fields.items():
-                    if field.endswith("_amount") or field == "estimated_discount":
-                        try:
-                            values[field] = float(get_attr_value(attributes, attr_name, default))
-                        except (ValueError, TypeError):
-                            values[field] = 0.0
-                    else:
-                        values[field] = str(get_attr_value(attributes, attr_name, default))[:255]
-                
-                print(f"Данные для сохранения: {values}")
-
-                cur.execute("""
-                    INSERT INTO demands (
-                        id, number, date, counterparty, store, project, sales_channel, 
-                        amount, cost_price, overhead, profit, promo_period, delivery_amount,
-                        admin_data, gdeslon, cityads, ozon, ozon_fbs, yamarket_fbs,
-                        yamarket_dbs, yandex_direct, price_ru, wildberries, gis2, seo,
-                        programmatic, avito, multiorders, estimated_discount, status, comment
-                    ) VALUES (
-                        %(id)s, %(number)s, %(date)s, %(counterparty)s, %(store)s, %(project)s, %(sales_channel)s,
-                        %(amount)s, %(cost_price)s, %(overhead)s, %(profit)s, %(promo_period)s, %(delivery_amount)s,
-                        %(admin_data)s, %(gdeslon)s, %(cityads)s, %(ozon)s, %(ozon_fbs)s, %(yamarket_fbs)s,
-                        %(yamarket_dbs)s, %(yandex_direct)s, %(price_ru)s, %(wildberries)s, %(gis2)s, %(seo)s,
-                        %(programmatic)s, %(avito)s, %(multiorders)s, %(estimated_discount)s, %(status)s, %(comment)s
-                    )
-                    ON CONFLICT (id) DO UPDATE SET
-                        number = EXCLUDED.number,
-                        date = EXCLUDED.date,
-                        counterparty = EXCLUDED.counterparty,
-                        store = EXCLUDED.store,
-                        project = EXCLUDED.project,
-                        sales_channel = EXCLUDED.sales_channel,
-                        amount = EXCLUDED.amount,
-                        cost_price = EXCLUDED.cost_price,
-                        overhead = EXCLUDED.overhead,
-                        profit = EXCLUDED.profit,
-                        promo_period = EXCLUDED.promo_period,
-                        delivery_amount = EXCLUDED.delivery_amount,
-                        admin_data = EXCLUDED.admin_data,
-                        gdeslon = EXCLUDED.gdeslon,
-                        cityads = EXCLUDED.cityads,
-                        ozon = EXCLUDED.ozon,
-                        ozon_fbs = EXCLUDED.ozon_fbs,
-                        yamarket_fbs = EXCLUDED.yamarket_fbs,
-                        yamarket_dbs = EXCLUDED.yamarket_dbs,
-                        yandex_direct = EXCLUDED.yandex_direct,
-                        price_ru = EXCLUDED.price_ru,
-                        wildberries = EXCLUDED.wildberries,
-                        gis2 = EXCLUDED.gis2,
-                        seo = EXCLUDED.seo,
-                        programmatic = EXCLUDED.programmatic,
-                        avito = EXCLUDED.avito,
-                        multiorders = EXCLUDED.multiorders,
-                        estimated_discount = EXCLUDED.estimated_discount,
-                        status = EXCLUDED.status,
-                        comment = EXCLUDED.comment
-                """, values)
-                
-                saved_count += 1
-
+                # Если накопился пакет - вставляем
+                if len(batch_values) >= batch_size:
+                    saved_count += await insert_batch(cur, batch_values)
+                    batch_values = []
+                    tasks_status[task_id] = {
+                        "status": "processing",
+                        "progress": f"{saved_count}/{total_count}",
+                        "message": "Обработка данных..."
+                    }
+            
             except Exception as e:
-                print(f"Ошибка при обработке отгрузки {demand.get('id')}: {str(e)}")
+                logger.error(f"Ошибка при обработке отгрузки {demand.get('id')}: {str(e)}")
                 continue
         
+        # Вставляем оставшиеся записи
+        if batch_values:
+            saved_count += await insert_batch(cur, batch_values)
+        
         conn.commit()
-        return {"message": f"Успешно сохранено {saved_count} из {len(demands)} записей"}
-
+        tasks_status[task_id] = {
+            "status": "completed",
+            "progress": f"{saved_count}/{total_count}",
+            "message": f"Успешно сохранено {saved_count} из {total_count} записей"
+        }
+        
     except Exception as e:
+        logger.error(f"Критическая ошибка при обработке пакета: {str(e)}")
         if conn:
             conn.rollback()
-        print(f"Критическая ошибка: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        tasks_status[task_id] = {
+            "status": "failed",
+            "progress": f"{saved_count}/{total_count}",
+            "message": f"Ошибка: {str(e)}"
+        }
     finally:
         if conn:
             conn.close()
+
+async def insert_batch(cur, batch_values: List[Dict[str, Any]]):
+    """Массовая вставка пакета данных"""
+    try:
+        query = """
+            INSERT INTO demands (
+                id, number, date, counterparty, store, project, sales_channel, 
+                amount, cost_price, overhead, profit, promo_period, delivery_amount,
+                admin_data, gdeslon, cityads, ozon, ozon_fbs, yamarket_fbs,
+                yamarket_dbs, yandex_direct, price_ru, wildberries, gis2, seo,
+                programmatic, avito, multiorders, estimated_discount, status, comment
+            ) VALUES (
+                %(id)s, %(number)s, %(date)s, %(counterparty)s, %(store)s, %(project)s, %(sales_channel)s,
+                %(amount)s, %(cost_price)s, %(overhead)s, %(profit)s, %(promo_period)s, %(delivery_amount)s,
+                %(admin_data)s, %(gdeslon)s, %(cityads)s, %(ozon)s, %(ozon_fbs)s, %(yamarket_fbs)s,
+                %(yamarket_dbs)s, %(yandex_direct)s, %(price_ru)s, %(wildberries)s, %(gis2)s, %(seo)s,
+                %(programmatic)s, %(avito)s, %(multiorders)s, %(estimated_discount)s, %(status)s, %(comment)s
+            )
+            ON CONFLICT (id) DO UPDATE SET
+                number = EXCLUDED.number,
+                date = EXCLUDED.date,
+                counterparty = EXCLUDED.counterparty,
+                store = EXCLUDED.store,
+                project = EXCLUDED.project,
+                sales_channel = EXCLUDED.sales_channel,
+                amount = EXCLUDED.amount,
+                cost_price = EXCLUDED.cost_price,
+                overhead = EXCLUDED.overhead,
+                profit = EXCLUDED.profit,
+                promo_period = EXCLUDED.promo_period,
+                delivery_amount = EXCLUDED.delivery_amount,
+                admin_data = EXCLUDED.admin_data,
+                gdeslon = EXCLUDED.gdeslon,
+                cityads = EXCLUDED.cityads,
+                ozon = EXCLUDED.ozon,
+                ozon_fbs = EXCLUDED.ozon_fbs,
+                yamarket_fbs = EXCLUDED.yamarket_fbs,
+                yamarket_dbs = EXCLUDED.yamarket_dbs,
+                yandex_direct = EXCLUDED.yandex_direct,
+                price_ru = EXCLUDED.price_ru,
+                wildberries = EXCLUDED.wildberries,
+                gis2 = EXCLUDED.gis2,
+                seo = EXCLUDED.seo,
+                programmatic = EXCLUDED.programmatic,
+                avito = EXCLUDED.avito,
+                multiorders = EXCLUDED.multiorders,
+                estimated_discount = EXCLUDED.estimated_discount,
+                status = EXCLUDED.status,
+                comment = EXCLUDED.comment
+        """
+        
+        execute_batch(cur, query, batch_values)
+        return len(batch_values)
+    
+    except Exception as e:
+        logger.error(f"Ошибка при массовой вставке: {str(e)}")
+        return 0
+
+def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
+    """Подготовка данных отгрузки для вставки в БД"""
+    demand_id = str(demand.get("id", ""))
+    attributes = demand.get("attributes", [])
+    
+    # Обработка накладных расходов (overhead)
+    overhead_data = demand.get("overhead", {})
+    overhead_sum = float(overhead_data.get("sum", 0)) / 100
+    
+    # Получаем себестоимость
+    cost_price = moysklad.get_demand_cost_price(demand_id)
+    
+    # Основные данные
+    values = {
+        "id": demand_id[:255],
+        "number": str(demand.get("name", ""))[:50],
+        "date": demand.get("moment", ""),
+        "counterparty": str(demand.get("agent", {}).get("name", ""))[:255],
+        "store": str(demand.get("store", {}).get("name", ""))[:255],
+        "project": str(demand.get("project", {}).get("name", "Без проекта"))[:255],
+        "sales_channel": str(demand.get("salesChannel", {}).get("name", "Без канала"))[:255],
+        "amount": float(demand.get("sum", 0)) / 100,
+        "cost_price": cost_price,
+        "overhead": overhead_sum,
+        "profit": (float(demand.get("sum", 0)) / 100) - cost_price - overhead_sum,
+        "status": str(demand.get("state", {}).get("name", ""))[:100],
+        "comment": str(demand.get("description", ""))[:255]
+    }
+
+    # Обработка атрибутов
+    attr_fields = {
+        "promo_period": ("Акционный период", ""),
+        "delivery_amount": ("Сумма доставки", 0),
+        "admin_data": ("Адмидат", 0),
+        "gdeslon": ("ГдеСлон", 0),
+        "cityads": ("CityAds", 0),
+        "ozon": ("Ozon", 0),
+        "ozon_fbs": ("Ozon FBS", 0),
+        "yamarket_fbs": ("Яндекс Маркет FBS", 0),
+        "yamarket_dbs": ("Яндекс Маркет DBS", 0),
+        "yandex_direct": ("Яндекс Директ", 0),
+        "price_ru": ("Price ru", 0),
+        "wildberries": ("Wildberries", 0),
+        "gis2": ("2Gis", 0),
+        "seo": ("SEO", 0),
+        "programmatic": ("Программатик", 0),
+        "avito": ("Авито", 0),
+        "multiorders": ("Мультиканальные заказы", 0),
+        "estimated_discount": ("Примеренная скидка", 0)
+    }
+
+    for field, (attr_name, default) in attr_fields.items():
+        if field.endswith("_amount") or field == "estimated_discount":
+            try:
+                values[field] = float(get_attr_value(attributes, attr_name, default))
+            except (ValueError, TypeError):
+                values[field] = 0.0
+        else:
+            values[field] = str(get_attr_value(attributes, attr_name, default))[:255]
+    
+    return values
+
+def get_attr_value(attrs, attr_name, default=""):
+    """Безопасное извлечение атрибутов"""
+    if not attrs:
+        return default
+    for attr in attrs:
+        if attr.get("name") == attr_name:
+            value = attr.get("value")
+            if isinstance(value, dict):
+                return value.get("name", str(value))
+            return str(value) if value is not None else default
+    return default
+
+@app.post("/api/save-to-db")
+async def save_to_db(date_range: DateRange, background_tasks: BackgroundTasks):
+    """Запуск фоновой задачи для обработки данных"""
+    try:
+        task_id = str(uuid.uuid4())
+        tasks_status[task_id] = {
+            "status": "pending",
+            "progress": "0/0",
+            "message": "Задача поставлена в очередь"
+        }
+        
+        # Запускаем фоновую задачу
+        background_tasks.add_task(process_data_task, date_range, task_id)
+        
+        return {
+            "task_id": task_id,
+            "status": "started",
+            "message": "Обработка данных начата. Используйте task_id для проверки статуса."
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def process_data_task(date_range: DateRange, task_id: str):
+    """Фоновая задача для обработки данных"""
+    try:
+        tasks_status[task_id] = {
+            "status": "fetching",
+            "progress": "0/0",
+            "message": "Получение данных из МойСклад..."
+        }
+        
+        # Получаем данные из МойСклад
+        demands = moysklad.get_demands(date_range.start_date, date_range.end_date)
+        
+        if not demands:
+            tasks_status[task_id] = {
+                "status": "completed",
+                "progress": "0/0",
+                "message": "Нет данных для сохранения"
+            }
+            return
+        
+        tasks_status[task_id] = {
+            "status": "processing",
+            "progress": f"0/{len(demands)}",
+            "message": "Начало обработки данных..."
+        }
+        
+        # Обрабатываем данные пакетами
+        await process_demands_batch(demands, task_id)
+    
+    except Exception as e:
+        logger.error(f"Ошибка в фоновой задаче: {str(e)}")
+        tasks_status[task_id] = {
+            "status": "failed",
+            "progress": "0/0",
+            "message": f"Ошибка: {str(e)}"
+        }
+
+@app.get("/api/task-status/{task_id}")
+async def get_task_status(task_id: str):
+    """Проверка статуса задачи"""
+    status = tasks_status.get(task_id, {
+        "status": "not_found",
+        "progress": "0/0",
+        "message": "Задача не найдена"
+    })
+    return {"task_id": task_id, **status}
+
+# Остальной код (export_excel и init_db) остается без изменений
 
 @app.post("/api/export/excel")
 async def export_excel(date_range: DateRange):
