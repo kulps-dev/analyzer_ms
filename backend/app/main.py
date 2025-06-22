@@ -1,24 +1,12 @@
-# main.py (основные изменения)
-
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import psycopg2
-from psycopg2.extras import execute_batch
 from .moysklad import MoyskladAPI
 from datetime import datetime
 import os
 from openpyxl import Workbook
 import io
-import asyncio
-from typing import List
-import logging
-import time
-
-
-# Настройка логгирования
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -40,15 +28,6 @@ class DateRange(BaseModel):
     start_date: str
     end_date: str
 
-class BatchSaveTask(BaseModel):
-    task_id: str
-    status: str
-    processed: int
-    total: int
-
-# Глобальный словарь для хранения статусов задач
-tasks = {}
-
 def get_db_connection():
     return psycopg2.connect(**DB_CONFIG)
 
@@ -58,8 +37,6 @@ def init_db():
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        
-        # Создаем таблицу, если ее нет
         cur.execute("""
             CREATE TABLE IF NOT EXISTS demands (
                 id VARCHAR(255) PRIMARY KEY,
@@ -96,18 +73,9 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        
-        # Создаем индексы для ускорения поиска
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS demands_date_idx ON demands (date);
-            CREATE INDEX IF NOT EXISTS demands_counterparty_idx ON demands (counterparty);
-            CREATE INDEX IF NOT EXISTS demands_project_idx ON demands (project);
-            CREATE INDEX IF NOT EXISTS demands_sales_channel_idx ON demands (sales_channel);
-        """)
-        
         conn.commit()
     except Exception as e:
-        logger.error(f"Ошибка при инициализации БД: {e}")
+        print(f"Ошибка при инициализации БД: {e}")
         if conn:
             conn.rollback()
     finally:
@@ -117,27 +85,40 @@ def init_db():
 # Инициализация БД при старте
 init_db()
 
-async def process_demands_batch(demands_batch: List[dict], task_id: str):
-    """Обработка партии отгрузок и сохранение в БД"""
+@app.post("/api/save-to-db")
+async def save_to_db(date_range: DateRange):
     conn = None
     try:
+        init_db()
+        demands = moysklad.get_demands(date_range.start_date, date_range.end_date)
+        if not demands:
+            return {"message": "Нет данных для сохранения"}
+
         conn = get_db_connection()
         cur = conn.cursor()
         
-        batch_size = len(demands_batch)
-        processed = 0
+        saved_count = 0
         
-        # Подготовка данных для batch-вставки
-        batch_data = []
+        # Функция для безопасного извлечения атрибутов
+        def get_attr_value(attrs, attr_name, default=""):
+            if not attrs:
+                return default
+            for attr in attrs:
+                if attr.get("name") == attr_name:
+                    value = attr.get("value")
+                    if isinstance(value, dict):
+                        return value.get("name", str(value))
+                    return str(value) if value is not None else default
+            return default
         
-        for demand in demands_batch:
+        for demand in demands:
             try:
                 demand_id = str(demand.get("id", ""))
                 attributes = demand.get("attributes", [])
                 
                 # Обработка накладных расходов (overhead)
                 overhead_data = demand.get("overhead", {})
-                overhead_sum = float(overhead_data.get("sum", 0)) / 100
+                overhead_sum = float(overhead_data.get("sum", 0)) / 100  # Делим на 100 для перевода в рубли
                 
                 # Получаем себестоимость
                 cost_price = moysklad.get_demand_cost_price(demand_id)
@@ -190,164 +171,81 @@ async def process_demands_batch(demands_batch: List[dict], task_id: str):
                     else:
                         values[field] = str(get_attr_value(attributes, attr_name, default))[:255]
                 
-                batch_data.append(values)
-                processed += 1
-                tasks[task_id].processed = processed
+                print(f"Данные для сохранения: {values}")
+
+                cur.execute("""
+                    INSERT INTO demands (
+                        id, number, date, counterparty, store, project, sales_channel, 
+                        amount, cost_price, overhead, profit, promo_period, delivery_amount,
+                        admin_data, gdeslon, cityads, ozon, ozon_fbs, yamarket_fbs,
+                        yamarket_dbs, yandex_direct, price_ru, wildberries, gis2, seo,
+                        programmatic, avito, multiorders, estimated_discount, status, comment
+                    ) VALUES (
+                        %(id)s, %(number)s, %(date)s, %(counterparty)s, %(store)s, %(project)s, %(sales_channel)s,
+                        %(amount)s, %(cost_price)s, %(overhead)s, %(profit)s, %(promo_period)s, %(delivery_amount)s,
+                        %(admin_data)s, %(gdeslon)s, %(cityads)s, %(ozon)s, %(ozon_fbs)s, %(yamarket_fbs)s,
+                        %(yamarket_dbs)s, %(yandex_direct)s, %(price_ru)s, %(wildberries)s, %(gis2)s, %(seo)s,
+                        %(programmatic)s, %(avito)s, %(multiorders)s, %(estimated_discount)s, %(status)s, %(comment)s
+                    )
+                    ON CONFLICT (id) DO UPDATE SET
+                        number = EXCLUDED.number,
+                        date = EXCLUDED.date,
+                        counterparty = EXCLUDED.counterparty,
+                        store = EXCLUDED.store,
+                        project = EXCLUDED.project,
+                        sales_channel = EXCLUDED.sales_channel,
+                        amount = EXCLUDED.amount,
+                        cost_price = EXCLUDED.cost_price,
+                        overhead = EXCLUDED.overhead,
+                        profit = EXCLUDED.profit,
+                        promo_period = EXCLUDED.promo_period,
+                        delivery_amount = EXCLUDED.delivery_amount,
+                        admin_data = EXCLUDED.admin_data,
+                        gdeslon = EXCLUDED.gdeslon,
+                        cityads = EXCLUDED.cityads,
+                        ozon = EXCLUDED.ozon,
+                        ozon_fbs = EXCLUDED.ozon_fbs,
+                        yamarket_fbs = EXCLUDED.yamarket_fbs,
+                        yamarket_dbs = EXCLUDED.yamarket_dbs,
+                        yandex_direct = EXCLUDED.yandex_direct,
+                        price_ru = EXCLUDED.price_ru,
+                        wildberries = EXCLUDED.wildberries,
+                        gis2 = EXCLUDED.gis2,
+                        seo = EXCLUDED.seo,
+                        programmatic = EXCLUDED.programmatic,
+                        avito = EXCLUDED.avito,
+                        multiorders = EXCLUDED.multiorders,
+                        estimated_discount = EXCLUDED.estimated_discount,
+                        status = EXCLUDED.status,
+                        comment = EXCLUDED.comment
+                """, values)
                 
+                saved_count += 1
+
             except Exception as e:
-                logger.error(f"Ошибка при обработке отгрузки {demand.get('id')}: {str(e)}")
+                print(f"Ошибка при обработке отгрузки {demand.get('id')}: {str(e)}")
                 continue
         
-        # Batch-вставка данных
-        if batch_data:
-            execute_batch(cur, """
-                INSERT INTO demands (
-                    id, number, date, counterparty, store, project, sales_channel, 
-                    amount, cost_price, overhead, profit, promo_period, delivery_amount,
-                    admin_data, gdeslon, cityads, ozon, ozon_fbs, yamarket_fbs,
-                    yamarket_dbs, yandex_direct, price_ru, wildberries, gis2, seo,
-                    programmatic, avito, multiorders, estimated_discount, status, comment
-                ) VALUES (
-                    %(id)s, %(number)s, %(date)s, %(counterparty)s, %(store)s, %(project)s, %(sales_channel)s,
-                    %(amount)s, %(cost_price)s, %(overhead)s, %(profit)s, %(promo_period)s, %(delivery_amount)s,
-                    %(admin_data)s, %(gdeslon)s, %(cityads)s, %(ozon)s, %(ozon_fbs)s, %(yamarket_fbs)s,
-                    %(yamarket_dbs)s, %(yandex_direct)s, %(price_ru)s, %(wildberries)s, %(gis2)s, %(seo)s,
-                    %(programmatic)s, %(avito)s, %(multiorders)s, %(estimated_discount)s, %(status)s, %(comment)s
-                )
-                ON CONFLICT (id) DO UPDATE SET
-                    number = EXCLUDED.number,
-                    date = EXCLUDED.date,
-                    counterparty = EXCLUDED.counterparty,
-                    store = EXCLUDED.store,
-                    project = EXCLUDED.project,
-                    sales_channel = EXCLUDED.sales_channel,
-                    amount = EXCLUDED.amount,
-                    cost_price = EXCLUDED.cost_price,
-                    overhead = EXCLUDED.overhead,
-                    profit = EXCLUDED.profit,
-                    promo_period = EXCLUDED.promo_period,
-                    delivery_amount = EXCLUDED.delivery_amount,
-                    admin_data = EXCLUDED.admin_data,
-                    gdeslon = EXCLUDED.gdeslon,
-                    cityads = EXCLUDED.cityads,
-                    ozon = EXCLUDED.ozon,
-                    ozon_fbs = EXCLUDED.ozon_fbs,
-                    yamarket_fbs = EXCLUDED.yamarket_fbs,
-                    yamarket_dbs = EXCLUDED.yamarket_dbs,
-                    yandex_direct = EXCLUDED.yandex_direct,
-                    price_ru = EXCLUDED.price_ru,
-                    wildberries = EXCLUDED.wildberries,
-                    gis2 = EXCLUDED.gis2,
-                    seo = EXCLUDED.seo,
-                    programmatic = EXCLUDED.programmatic,
-                    avito = EXCLUDED.avito,
-                    multiorders = EXCLUDED.multiorders,
-                    estimated_discount = EXCLUDED.estimated_discount,
-                    status = EXCLUDED.status,
-                    comment = EXCLUDED.comment
-            """, batch_data)
-            
-            conn.commit()
-            logger.info(f"Успешно сохранено {processed} записей из партии {batch_size}")
-        
-        tasks[task_id].status = "completed" if processed == batch_size else "partial"
-        
+        conn.commit()
+        return {"message": f"Успешно сохранено {saved_count} из {len(demands)} записей"}
+
     except Exception as e:
-        logger.error(f"Ошибка при обработке партии: {str(e)}")
         if conn:
             conn.rollback()
-        tasks[task_id].status = "failed"
+        print(f"Критическая ошибка: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn:
             conn.close()
 
-@app.post("/api/save-to-db")
-async def save_to_db(date_range: DateRange, background_tasks: BackgroundTasks):
-    """Запускает фоновую задачу для сохранения данных"""
-    try:
-        init_db()
-        
-        # Генерируем уникальный ID задачи
-        task_id = str(int(time.time()))  # Здесь используется модуль time
-        tasks[task_id] = {
-            "status": "starting",
-            "processed": 0,
-            "total": 0
-        }
-        
-        # Запускаем фоновую задачу
-        background_tasks.add_task(process_large_data, date_range, task_id)
-        
-        return {"task_id": task_id, "message": "Задача по сохранению данных запущена в фоне"}
-    
-    except Exception as e:
-        logger.error(f"Ошибка при запуске задачи: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-async def process_large_data(date_range: DateRange, task_id: str):
-    """Обработка большого объема данных в фоне"""
-    try:
-        logger.info(f"Начало обработки данных для задачи {task_id}")
-        tasks[task_id]["status"] = "fetching_data"
-        
-        # Получаем все отгрузки за период
-        demands = moysklad.get_demands(date_range.start_date, date_range.end_date)
-        
-        if not demands:
-            tasks[task_id]["status"] = "completed"
-            tasks[task_id]["total"] = 0
-            logger.info(f"Нет данных для сохранения для задачи {task_id}")
-            return
-        
-        tasks[task_id]["total"] = len(demands)
-        tasks[task_id]["status"] = "processing"
-        
-        # Разбиваем на партии для обработки
-        batch_size = 500  # Размер партии
-        batches = [demands[i:i + batch_size] for i in range(0, len(demands), batch_size)]
-        
-        logger.info(f"Всего {len(demands)} записей, разбито на {len(batches)} партий")
-        
-        # Обрабатываем каждую партию
-        for batch in batches:
-            await process_demands_batch(batch, task_id)
-            # Небольшая пауза между партиями
-            await asyncio.sleep(1)
-        
-        logger.info(f"Задача {task_id} завершена")
-        tasks[task_id]["status"] = "completed"
-    
-    except Exception as e:
-        logger.error(f"Ошибка в фоновой задаче {task_id}: {str(e)}")
-        tasks[task_id]["status"] = "failed"
-
-@app.get("/api/task-status/{task_id}")
-async def get_task_status(task_id: str):
-    """Получить статус фоновой задачи"""
-    task = tasks.get(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Задача не найдена")
-    
-    return {
-        "task_id": task_id,
-        "status": task["status"],
-        "processed": task["processed"],
-        "total": task["total"],
-        "progress": f"{int((task['processed'] / task['total']) * 100)}%" if task['total'] > 0 else "0%"
-    }
-
 @app.post("/api/export/excel")
 async def export_excel(date_range: DateRange):
-    """Экспорт данных в Excel с оптимизацией для больших объемов"""
     conn = None
     try:
         conn = get_db_connection()
-        cur = conn.cursor(name='server_side_cursor')
+        cur = conn.cursor()
         
-        # Используем серверный курсор для работы с большими объемами данных
-        cur.itersize = 1000  # Количество строк, загружаемых за раз
-        
-        query = """
+        cur.execute("""
             SELECT 
                 number, date, counterparty, store, project, sales_channel,
                 amount, cost_price, overhead, profit, promo_period, delivery_amount,
@@ -357,13 +255,13 @@ async def export_excel(date_range: DateRange):
             FROM demands
             WHERE date BETWEEN %s AND %s
             ORDER BY date DESC
-        """
+        """, (date_range.start_date, date_range.end_date))
         
-        cur.execute(query, (date_range.start_date, date_range.end_date))
+        rows = cur.fetchall()
         
-        # Создаем Excel файл с потоковой записью
-        wb = Workbook(write_only=True)
-        ws = wb.create_sheet(title="Отчет по отгрузкам")
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Отчет по отгрузкам"
         
         # Заголовки столбцов
         headers = [
@@ -375,20 +273,101 @@ async def export_excel(date_range: DateRange):
             "Примеренная скидка"
         ]
         
+        # Стили для оформления
+        from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+        from openpyxl.utils import get_column_letter
+        
+        # Шрифты
+        header_font = Font(name='Calibri', bold=True, size=12, color='FFFFFF')
+        cell_font = Font(name='Calibri', size=11)
+        
+        # Выравнивание
+        center_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        left_alignment = Alignment(horizontal='left', vertical='center')
+        right_alignment = Alignment(horizontal='right', vertical='center')
+        
+        # Границы
+        thin_border = Border(left=Side(style='thin'), 
+                          right=Side(style='thin'), 
+                          top=Side(style='thin'), 
+                          bottom=Side(style='thin'))
+        
+        # Заливка
+        header_fill = PatternFill(start_color='4F81BD', end_color='4F81BD', fill_type='solid')
+        money_fill = PatternFill(start_color='E6E6E6', end_color='E6E6E6', fill_type='solid')
+        
         # Добавляем заголовки
         ws.append(headers)
         
-        # Добавляем данные по мере чтения из курсора
-        row_count = 0
-        for row in cur:
-            ws.append(row)
-            row_count += 1
+        # Форматируем заголовки
+        for col in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col)
+            cell.font = header_font
+            cell.alignment = center_alignment
+            cell.fill = header_fill
+            cell.border = thin_border
             
-            # Логируем прогресс каждые 1000 строк
-            if row_count % 1000 == 0:
-                logger.info(f"Экспортировано {row_count} строк")
+            # Автоподбор ширины столбца
+            column_letter = get_column_letter(col)
+            ws.column_dimensions[column_letter].width = max(15, len(headers[col-1]) * 1.2)
         
-        logger.info(f"Всего экспортировано {row_count} строк")
+        # Определяем числовые столбцы (нумерация с 1)
+        numeric_columns = [7, 8, 9, 10, 12] + list(range(13, 29))  # 7-12 и 13-28 (включительно)
+        
+        # Добавляем данные и форматируем их
+        for row_idx, row in enumerate(rows, start=2):
+            for col_idx, value in enumerate(row, start=1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                cell.font = cell_font
+                cell.border = thin_border
+                
+                # Форматирование чисел и дат
+                if col_idx in numeric_columns:  # Все числовые столбцы
+                    try:
+                        # Преобразуем значение в число, если возможно
+                        num_value = float(value) if value not in [None, ''] else 0.0
+                        cell.value = num_value
+                        cell.number_format = '#,##0.00'
+                        cell.alignment = right_alignment
+                        if row_idx % 2 == 0:  # Зебра для читаемости
+                            cell.fill = money_fill
+                    except (ValueError, TypeError):
+                        # Если не удалось преобразовать в число, оставляем как есть
+                        cell.alignment = left_alignment
+                elif col_idx == 2:  # Столбец с датой
+                    cell.number_format = 'DD.MM.YYYY'
+                    cell.alignment = center_alignment
+                else:
+                    cell.alignment = left_alignment
+        
+        # Замораживаем заголовки
+        ws.freeze_panes = 'A2'
+        
+        # Добавляем автофильтр
+        ws.auto_filter.ref = ws.dimensions
+        
+        # Добавляем итоговую строку
+        last_row = len(rows) + 1
+        ws.append([""] * len(headers))
+        total_row = last_row + 1
+        
+        # Форматируем итоговую строку
+        for col in range(1, len(headers) + 1):
+            cell = ws.cell(row=total_row, column=col)
+            cell.font = Font(bold=True)
+            cell.border = thin_border
+            
+            # Суммы для числовых столбцов
+            if col in numeric_columns:
+                start_col = get_column_letter(col)
+                formula = f"SUM({start_col}2:{start_col}{last_row})"
+                cell.value = f"=ROUND({formula}, 2)"
+                cell.number_format = '#,##0.00'
+                cell.alignment = right_alignment
+                cell.fill = PatternFill(start_color='D9D9D9', end_color='D9D9D9', fill_type='solid')
+            elif col == 1:
+                cell.value = "Итого:"
+                cell.alignment = right_alignment
         
         buffer = io.BytesIO()
         wb.save(buffer)
@@ -396,11 +375,9 @@ async def export_excel(date_range: DateRange):
         
         return {
             "file": buffer.read().hex(),
-            "filename": f"Отчет_по_отгрузкам_{date_range.start_date}_по_{date_range.end_date}.xlsx",
-            "rows_exported": row_count
+            "filename": f"Отчет_по_отгрузкам_{date_range.start_date}_по_{date_range.end_date}.xlsx"
         }
     except Exception as e:
-        logger.error(f"Ошибка при экспорте в Excel: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn:
