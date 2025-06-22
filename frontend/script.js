@@ -111,3 +111,61 @@ document.addEventListener('DOMContentLoaded', function() {
         }, 3000);
     }
 });
+
+// Пример кода для фронтенда
+async function checkTaskStatus(taskId) {
+    try {
+        const response = await fetch(`/api/task-status/${taskId}`);
+        const data = await response.json();
+        
+        // Обновляем UI
+        updateProgressBar(data);
+        
+        if (data.status === 'processing' || data.status === 'fetching') {
+            // Продолжаем проверять статус каждые 2 секунды
+            setTimeout(() => checkTaskStatus(taskId), 2000);
+        }
+    } catch (error) {
+        console.error('Ошибка при проверке статуса:', error);
+    }
+}
+
+function updateProgressBar(taskData) {
+    const progressBar = document.getElementById('progress-bar');
+    const progressText = document.getElementById('progress-text');
+    const statusText = document.getElementById('status-text');
+    const detailsDiv = document.getElementById('task-details');
+    
+    // Обновляем прогресс-бар
+    if (taskData.details && taskData.details.total > 0) {
+        const percent = (taskData.details.processed / taskData.details.total) * 100;
+        progressBar.style.width = `${percent}%`;
+        progressBar.setAttribute('aria-valuenow', percent);
+    }
+    
+    // Обновляем текст
+    progressText.textContent = taskData.progress || '';
+    statusText.textContent = taskData.message || '';
+    
+    // Показываем детали
+    if (taskData.details) {
+        detailsDiv.innerHTML = `
+            <p>Обработано: ${taskData.details.processed}</p>
+            <p>Успешно: ${taskData.details.saved}</p>
+            <p>Ошибок: ${taskData.details.errors}</p>
+            <p>Время выполнения: ${taskData.details.duration || '--'} сек</p>
+        `;
+    }
+    
+    // Меняем цвет в зависимости от статуса
+    progressBar.className = `progress-bar ${getStatusClass(taskData.status)}`;
+}
+
+function getStatusClass(status) {
+    switch(status) {
+        case 'completed': return 'bg-success';
+        case 'failed': return 'bg-danger';
+        case 'processing': return 'bg-info progress-bar-striped progress-bar-animated';
+        default: return 'bg-secondary';
+    }
+}
