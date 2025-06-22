@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import psycopg2
 from psycopg2.extras import execute_batch
-from moysklad import MoyskladAPI
+from .moysklad import MoyskladAPI
 from datetime import datetime
 import os
 from openpyxl import Workbook
