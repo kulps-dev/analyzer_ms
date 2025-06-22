@@ -95,63 +95,83 @@ def _sync_init_db():
         conn.autocommit = True
         cur = conn.cursor()
         
-        # Проверяем существование таблицы
+        # Удаляем таблицу, если она существует (опционально, можно убрать)
+        # cur.execute("DROP TABLE IF EXISTS demands")
+        
+        # Создание таблицы (если не существует)
         cur.execute("""
-            SELECT EXISTS (
-                SELECT FROM information_schema.tables 
-                WHERE table_name = 'demands'
+            CREATE TABLE IF NOT EXISTS demands (
+                id VARCHAR(255) PRIMARY KEY,
+                number VARCHAR(50),
+                date TIMESTAMP,
+                counterparty VARCHAR(255),
+                store VARCHAR(255),
+                project VARCHAR(255),
+                sales_channel VARCHAR(255),
+                amount NUMERIC(10, 2),
+                cost_price NUMERIC(10, 2),
+                overhead NUMERIC(10, 2),
+                profit NUMERIC(10, 2),
+                promo_period VARCHAR(100),
+                delivery_amount NUMERIC(10, 2),
+                admin_data VARCHAR(255),
+                gdeslon VARCHAR(255),
+                cityads VARCHAR(255),
+                ozon VARCHAR(255),
+                ozon_fbs VARCHAR(255),
+                yamarket_fbs VARCHAR(255),
+                yamarket_dbs VARCHAR(255),
+                yandex_direct VARCHAR(255),
+                price_ru VARCHAR(255),
+                wildberries VARCHAR(255),
+                gis2 VARCHAR(255),
+                seo VARCHAR(255),
+                programmatic VARCHAR(255),
+                avito VARCHAR(255),
+                multiorders VARCHAR(255),
+                estimated_discount NUMERIC(10, 2),
+                status VARCHAR(100),
+                comment TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        table_exists = cur.fetchone()[0]
         
-        if not table_exists:
-            # Создание таблицы
-            cur.execute("""
-                CREATE TABLE demands (
-                    id VARCHAR(255) PRIMARY KEY,
-                    number VARCHAR(50),
-                    date TIMESTAMP,
-                    counterparty VARCHAR(255),
-                    store VARCHAR(255),
-                    project VARCHAR(255),
-                    sales_channel VARCHAR(255),
-                    amount NUMERIC(10, 2),
-                    cost_price NUMERIC(10, 2),
-                    overhead NUMERIC(10, 2),
-                    profit NUMERIC(10, 2),
-                    promo_period VARCHAR(100),
-                    delivery_amount NUMERIC(10, 2),
-                    admin_data VARCHAR(255),
-                    gdeslon VARCHAR(255),
-                    cityads VARCHAR(255),
-                    ozon VARCHAR(255),
-                    ozon_fbs VARCHAR(255),
-                    yamarket_fbs VARCHAR(255),
-                    yamarket_dbs VARCHAR(255),
-                    yandex_direct VARCHAR(255),
-                    price_ru VARCHAR(255),
-                    wildberries VARCHAR(255),
-                    gis2 VARCHAR(255),
-                    seo VARCHAR(255),
-                    programmatic VARCHAR(255),
-                    avito VARCHAR(255),
-                    multiorders VARCHAR(255),
-                    estimated_discount NUMERIC(10, 2),
-                    status VARCHAR(100),
-                    comment TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            # Создание индексов
-            cur.execute("CREATE INDEX idx_demands_date ON demands(date)")
-            cur.execute("CREATE INDEX idx_demands_counterparty ON demands(counterparty)")
-            cur.execute("CREATE INDEX idx_demands_project ON demands(project)")
-            cur.execute("CREATE INDEX idx_demands_sales_channel ON demands(sales_channel)")
-            
-            logger.info("Таблица demands успешно создана")
-        else:
-            logger.info("Таблица demands уже существует")
+        # Создание индексов (если не существуют)
+        cur.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_indexes 
+                    WHERE indexname = 'idx_demands_date'
+                ) THEN
+                    CREATE INDEX idx_demands_date ON demands(date);
+                END IF;
+                
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_indexes 
+                    WHERE indexname = 'idx_demands_counterparty'
+                ) THEN
+                    CREATE INDEX idx_demands_counterparty ON demands(counterparty);
+                END IF;
+                
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_indexes 
+                    WHERE indexname = 'idx_demands_project'
+                ) THEN
+                    CREATE INDEX idx_demands_project ON demands(project);
+                END IF;
+                
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_indexes 
+                    WHERE indexname = 'idx_demands_sales_channel'
+                ) THEN
+                    CREATE INDEX idx_demands_sales_channel ON demands(sales_channel);
+                END IF;
+            END
+            $$;
+        """)
+        
+        logger.info("Таблица demands и индексы успешно созданы или уже существуют")
         
     except Exception as e:
         logger.error(f"Критическая ошибка при инициализации БД: {e}")
