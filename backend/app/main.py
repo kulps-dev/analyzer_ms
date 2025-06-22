@@ -328,15 +328,17 @@ def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
     }
 
     for field, (attr_name, default) in attr_fields.items():
-        if field.endswith("_amount") or field == "estimated_discount":
-            try:
-                values[field] = float(get_attr_value(attributes, attr_name, default))
-            except (ValueError, TypeError):
-                values[field] = 0.0
-        else:
-            values[field] = str(get_attr_value(attributes, attr_name, default))[:255]
-    
-    return values
+            if field.endswith("_amount") or field == "estimated_discount":
+                try:
+                    value = get_attr_value(attributes, attr_name, default)
+                    # Обработка пустых значений для числовых полей
+                    values[field] = float(value) if value not in ("", None) else 0.0
+                except (ValueError, TypeError):
+                    values[field] = 0.0
+            else:
+                values[field] = str(get_attr_value(attributes, attr_name, default))[:255]
+        
+        return values
 
 def get_attr_value(attrs: List[Dict], attr_name: str, default: Any = "") -> Any:
     """Безопасное извлечение атрибутов"""
