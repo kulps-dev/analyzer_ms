@@ -95,57 +95,63 @@ def _sync_init_db():
         conn.autocommit = True
         cur = conn.cursor()
         
-        # Принудительное удаление таблицы (для теста)
-        try:
-            cur.execute("DROP TABLE IF EXISTS demands")
-        except Exception as e:
-            logger.warning(f"Ошибка при удалении таблицы: {e}")
-
-        # Создание таблицы
+        # Проверяем существование таблицы
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS demands (
-                id VARCHAR(255) PRIMARY KEY,
-                number VARCHAR(50),
-                date TIMESTAMP,
-                counterparty VARCHAR(255),
-                store VARCHAR(255),
-                project VARCHAR(255),
-                sales_channel VARCHAR(255),
-                amount NUMERIC(10, 2),
-                cost_price NUMERIC(10, 2),
-                overhead NUMERIC(10, 2),
-                profit NUMERIC(10, 2),
-                promo_period VARCHAR(100),
-                delivery_amount NUMERIC(10, 2),
-                admin_data VARCHAR(255),
-                gdeslon VARCHAR(255),
-                cityads VARCHAR(255),
-                ozon VARCHAR(255),
-                ozon_fbs VARCHAR(255),
-                yamarket_fbs VARCHAR(255),
-                yamarket_dbs VARCHAR(255),
-                yandex_direct VARCHAR(255),
-                price_ru VARCHAR(255),
-                wildberries VARCHAR(255),
-                gis2 VARCHAR(255),
-                seo VARCHAR(255),
-                programmatic VARCHAR(255),
-                avito VARCHAR(255),
-                multiorders VARCHAR(255),
-                estimated_discount NUMERIC(10, 2),
-                status VARCHAR(100),
-                comment TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_name = 'demands'
             )
         """)
+        table_exists = cur.fetchone()[0]
         
-        # Создание индексов
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_demands_date ON demands(date)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_demands_counterparty ON demands(counterparty)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_demands_project ON demands(project)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_demands_sales_channel ON demands(sales_channel)")
-        
-        logger.info("Проверка/создание таблицы demands завершена")
+        if not table_exists:
+            # Создание таблицы
+            cur.execute("""
+                CREATE TABLE demands (
+                    id VARCHAR(255) PRIMARY KEY,
+                    number VARCHAR(50),
+                    date TIMESTAMP,
+                    counterparty VARCHAR(255),
+                    store VARCHAR(255),
+                    project VARCHAR(255),
+                    sales_channel VARCHAR(255),
+                    amount NUMERIC(10, 2),
+                    cost_price NUMERIC(10, 2),
+                    overhead NUMERIC(10, 2),
+                    profit NUMERIC(10, 2),
+                    promo_period VARCHAR(100),
+                    delivery_amount NUMERIC(10, 2),
+                    admin_data VARCHAR(255),
+                    gdeslon VARCHAR(255),
+                    cityads VARCHAR(255),
+                    ozon VARCHAR(255),
+                    ozon_fbs VARCHAR(255),
+                    yamarket_fbs VARCHAR(255),
+                    yamarket_dbs VARCHAR(255),
+                    yandex_direct VARCHAR(255),
+                    price_ru VARCHAR(255),
+                    wildberries VARCHAR(255),
+                    gis2 VARCHAR(255),
+                    seo VARCHAR(255),
+                    programmatic VARCHAR(255),
+                    avito VARCHAR(255),
+                    multiorders VARCHAR(255),
+                    estimated_discount NUMERIC(10, 2),
+                    status VARCHAR(100),
+                    comment TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # Создание индексов
+            cur.execute("CREATE INDEX idx_demands_date ON demands(date)")
+            cur.execute("CREATE INDEX idx_demands_counterparty ON demands(counterparty)")
+            cur.execute("CREATE INDEX idx_demands_project ON demands(project)")
+            cur.execute("CREATE INDEX idx_demands_sales_channel ON demands(sales_channel)")
+            
+            logger.info("Таблица demands успешно создана")
+        else:
+            logger.info("Таблица demands уже существует")
         
     except Exception as e:
         logger.error(f"Критическая ошибка при инициализации БД: {e}")
@@ -330,35 +336,40 @@ def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
     attr_fields = {
         "promo_period": ("Акционный период", ""),
         "delivery_amount": ("Сумма доставки", 0),
-        "admin_data": ("Адмидат", 0),
-        "gdeslon": ("ГдеСлон", 0),
-        "cityads": ("CityAds", 0),
-        "ozon": ("Ozon", 0),
-        "ozon_fbs": ("Ozon FBS", 0),
-        "yamarket_fbs": ("Яндекс Маркет FBS", 0),
-        "yamarket_dbs": ("Яндекс Маркет DBS", 0),
-        "yandex_direct": ("Яндекс Директ", 0),
-        "price_ru": ("Price ru", 0),
-        "wildberries": ("Wildberries", 0),
-        "gis2": ("2Gis", 0),
-        "seo": ("SEO", 0),
-        "programmatic": ("Программатик", 0),
-        "avito": ("Авито", 0),
-        "multiorders": ("Мультиканальные заказы", 0),
+        "admin_data": ("Адмидат", ""),
+        "gdeslon": ("ГдеСлон", ""),
+        "cityads": ("CityAds", ""),
+        "ozon": ("Ozon", ""),
+        "ozon_fbs": ("Ozon FBS", ""),
+        "yamarket_fbs": ("Яндекс Маркет FBS", ""),
+        "yamarket_dbs": ("Яндекс Маркет DBS", ""),
+        "yandex_direct": ("Яндекс Директ", ""),
+        "price_ru": ("Price ru", ""),
+        "wildberries": ("Wildberries", ""),
+        "gis2": ("2Gis", ""),
+        "seo": ("SEO", ""),
+        "programmatic": ("Программатик", ""),
+        "avito": ("Авито", ""),
+        "multiorders": ("Мультиканальные заказы", ""),
         "estimated_discount": ("Примеренная скидка", 0)
     }
 
     for field, (attr_name, default) in attr_fields.items():
-            if field.endswith("_amount") or field == "estimated_discount":
-                try:
-                    value = get_attr_value(attributes, attr_name, default)
-                    # Обработка пустых значений для числовых полей
-                    values[field] = float(value) if value not in ("", None) else 0.0
-                except (ValueError, TypeError):
+        if field.endswith("_amount") or field == "estimated_discount":
+            try:
+                value = get_attr_value(attributes, attr_name, default)
+                # Обработка пустых значений для числовых полей
+                if value in ("", None):
                     values[field] = 0.0
-            else:
-                values[field] = str(get_attr_value(attributes, attr_name, default))[:255]
-        
+                else:
+                    values[field] = float(value)
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Ошибка преобразования значения для поля {field}: {e}")
+                values[field] = 0.0
+        else:
+            value = get_attr_value(attributes, attr_name, default)
+            values[field] = str(value)[:255] if value is not None else ""
+    
     return values
 
 def get_attr_value(attrs: List[Dict], attr_name: str, default: Any = "") -> Any:
