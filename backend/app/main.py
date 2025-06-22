@@ -11,6 +11,7 @@ import io
 import asyncio
 from typing import List, Dict, Any
 import logging
+import uuid
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO)
