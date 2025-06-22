@@ -335,7 +335,7 @@ def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
     # Обработка атрибутов
     attr_fields = {
         "promo_period": ("Акционный период", ""),
-        "delivery_amount": ("Сумма доставки", 0),
+        "delivery_amount": ("Сумма доставки", 0.0),
         "admin_data": ("Адмидат", ""),
         "gdeslon": ("ГдеСлон", ""),
         "cityads": ("CityAds", ""),
@@ -351,23 +351,18 @@ def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
         "programmatic": ("Программатик", ""),
         "avito": ("Авито", ""),
         "multiorders": ("Мультиканальные заказы", ""),
-        "estimated_discount": ("Примеренная скидка", 0)
+        "estimated_discount": ("Примеренная скидка", 0.0)
     }
 
     for field, (attr_name, default) in attr_fields.items():
-        if field.endswith("_amount") or field == "estimated_discount":
+        value = get_attr_value(attributes, attr_name, default)
+        if field in ["delivery_amount", "estimated_discount"]:
+            # Обработка числовых полей
             try:
-                value = get_attr_value(attributes, attr_name, default)
-                # Обработка пустых значений для числовых полей
-                if value in ("", None):
-                    values[field] = 0.0
-                else:
-                    values[field] = float(value)
-            except (ValueError, TypeError) as e:
-                logger.warning(f"Ошибка преобразования значения для поля {field}: {e}")
+                values[field] = float(value) if value not in ("", None) else 0.0
+            except (ValueError, TypeError):
                 values[field] = 0.0
         else:
-            value = get_attr_value(attributes, attr_name, default)
             values[field] = str(value)[:255] if value is not None else ""
     
     return values
@@ -379,9 +374,11 @@ def get_attr_value(attrs: List[Dict], attr_name: str, default: Any = "") -> Any:
     for attr in attrs:
         if attr.get("name") == attr_name:
             value = attr.get("value")
+            if value is None:
+                return default
             if isinstance(value, dict):
                 return value.get("name", str(value))
-            return str(value) if value is not None else default
+            return value
     return default
 
 @app.post("/api/export/excel", response_model=ExportResponse)
