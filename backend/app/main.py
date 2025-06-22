@@ -55,50 +55,61 @@ def init_db():
         conn = get_db_connection()
         cur = conn.cursor()
         
+        # Проверяем существование таблицы более безопасным способом
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS demands (
-                id VARCHAR(255) PRIMARY KEY,
-                number VARCHAR(50),
-                date TIMESTAMP,
-                counterparty VARCHAR(255),
-                store VARCHAR(255),
-                project VARCHAR(255),
-                sales_channel VARCHAR(255),
-                amount NUMERIC(15, 2),
-                cost_price NUMERIC(15, 2),
-                overhead NUMERIC(15, 2),
-                profit NUMERIC(15, 2),
-                promo_period VARCHAR(255),
-                delivery_amount NUMERIC(15, 2),
-                admin_data NUMERIC(15, 2),
-                gdeslon NUMERIC(15, 2),
-                cityads NUMERIC(15, 2),
-                ozon NUMERIC(15, 2),
-                ozon_fbs NUMERIC(15, 2),
-                yamarket_fbs NUMERIC(15, 2),
-                yamarket_dbs NUMERIC(15, 2),
-                yandex_direct NUMERIC(15, 2),
-                price_ru NUMERIC(15, 2),
-                wildberries NUMERIC(15, 2),
-                gis2 NUMERIC(15, 2),
-                seo NUMERIC(15, 2),
-                programmatic NUMERIC(15, 2),
-                avito NUMERIC(15, 2),
-                multiorders NUMERIC(15, 2),
-                estimated_discount NUMERIC(15, 2),
-                status VARCHAR(100),
-                comment VARCHAR(255)
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_name = 'demands'
             )
         """)
+        table_exists = cur.fetchone()[0]
         
-        conn.commit()
-        logger.info("Таблица demands успешно создана или уже существует")
+        if not table_exists:
+            cur.execute("""
+                CREATE TABLE demands (
+                    id VARCHAR(255) PRIMARY KEY,
+                    number VARCHAR(50),
+                    date TIMESTAMP,
+                    counterparty VARCHAR(255),
+                    store VARCHAR(255),
+                    project VARCHAR(255),
+                    sales_channel VARCHAR(255),
+                    amount NUMERIC(15, 2),
+                    cost_price NUMERIC(15, 2),
+                    overhead NUMERIC(15, 2),
+                    profit NUMERIC(15, 2),
+                    promo_period VARCHAR(255),
+                    delivery_amount NUMERIC(15, 2),
+                    admin_data NUMERIC(15, 2),
+                    gdeslon NUMERIC(15, 2),
+                    cityads NUMERIC(15, 2),
+                    ozon NUMERIC(15, 2),
+                    ozon_fbs NUMERIC(15, 2),
+                    yamarket_fbs NUMERIC(15, 2),
+                    yamarket_dbs NUMERIC(15, 2),
+                    yandex_direct NUMERIC(15, 2),
+                    price_ru NUMERIC(15, 2),
+                    wildberries NUMERIC(15, 2),
+                    gis2 NUMERIC(15, 2),
+                    seo NUMERIC(15, 2),
+                    programmatic NUMERIC(15, 2),
+                    avito NUMERIC(15, 2),
+                    multiorders NUMERIC(15, 2),
+                    estimated_discount NUMERIC(15, 2),
+                    status VARCHAR(100),
+                    comment VARCHAR(255)
+                )
+            """)
+            conn.commit()
+            logger.info("Таблица demands успешно создана")
+        else:
+            logger.info("Таблица demands уже существует")
         
     except Exception as e:
-        logger.error(f"Ошибка при создании таблицы: {str(e)}")
+        logger.error(f"Ошибка при инициализации базы данных: {str(e)}")
         if conn:
             conn.rollback()
-        raise
+        # Не прерываем работу приложения, только логируем ошибку
     finally:
         if conn:
             conn.close()
