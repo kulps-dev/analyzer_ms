@@ -69,8 +69,23 @@ def get_db_connection():
 
 async def init_db():
     """Асинхронная инициализация таблицы в базе данных"""
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(executor, _sync_init_db)
+    retries = 5
+    delay = 2
+    
+    for attempt in range(retries):
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(executor, _sync_init_db)
+            logger.info("Инициализация БД успешно завершена")
+            return
+        except Exception as e:
+            logger.error(f"Попытка {attempt + 1} из {retries} не удалась: {str(e)}")
+            if attempt < retries - 1:
+                await asyncio.sleep(delay)
+                delay *= 2  # Экспоненциальная задержка
+            else:
+                logger.critical("Не удалось инициализировать БД после нескольких попыток")
+                raise
 
 def _sync_init_db():
     """Синхронная инициализация БД"""
