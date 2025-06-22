@@ -359,7 +359,7 @@ def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
             else:
                 values[field] = str(get_attr_value(attributes, attr_name, default))[:255]
         
-        return values
+    return values
 
 def get_attr_value(attrs: List[Dict], attr_name: str, default: Any = "") -> Any:
     """Безопасное извлечение атрибутов"""
