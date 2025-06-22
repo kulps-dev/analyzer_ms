@@ -11,13 +11,6 @@ services:
     restart: unless-stopped
     environment:
       - PYTHONUNBUFFERED=1
-      - PYTHONHASHSEED=random
-      - UVICORN_WORKERS=4  # Увеличиваем количество воркеров
-    ulimits:
-      nproc: 65535
-      nofile:
-        soft: 20000
-        hard: 40000
 
   frontend:
     build:
