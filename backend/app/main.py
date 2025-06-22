@@ -48,6 +48,67 @@ tasks_status = {}
 def get_db_connection():
     return psycopg2.connect(**DB_CONFIG)
 
+def init_db():
+    """Инициализация базы данных - создание таблицы если она не существует"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS demands (
+                id VARCHAR(255) PRIMARY KEY,
+                number VARCHAR(50),
+                date TIMESTAMP,
+                counterparty VARCHAR(255),
+                store VARCHAR(255),
+                project VARCHAR(255),
+                sales_channel VARCHAR(255),
+                amount NUMERIC(15, 2),
+                cost_price NUMERIC(15, 2),
+                overhead NUMERIC(15, 2),
+                profit NUMERIC(15, 2),
+                promo_period VARCHAR(255),
+                delivery_amount NUMERIC(15, 2),
+                admin_data NUMERIC(15, 2),
+                gdeslon NUMERIC(15, 2),
+                cityads NUMERIC(15, 2),
+                ozon NUMERIC(15, 2),
+                ozon_fbs NUMERIC(15, 2),
+                yamarket_fbs NUMERIC(15, 2),
+                yamarket_dbs NUMERIC(15, 2),
+                yandex_direct NUMERIC(15, 2),
+                price_ru NUMERIC(15, 2),
+                wildberries NUMERIC(15, 2),
+                gis2 NUMERIC(15, 2),
+                seo NUMERIC(15, 2),
+                programmatic NUMERIC(15, 2),
+                avito NUMERIC(15, 2),
+                multiorders NUMERIC(15, 2),
+                estimated_discount NUMERIC(15, 2),
+                status VARCHAR(100),
+                comment VARCHAR(255)
+            )
+        """)
+        
+        conn.commit()
+        logger.info("Таблица demands успешно создана или уже существует")
+        
+    except Exception as e:
+        logger.error(f"Ошибка при создании таблицы: {str(e)}")
+        if conn:
+            conn.rollback()
+        raise
+    finally:
+        if conn:
+            conn.close()
+
+@app.on_event("startup")
+async def startup_event():
+    """Действия при старте приложения"""
+    init_db()
+    logger.info("Приложение запущено, база данных инициализирована")
+
 async def process_demands_batch(demands: List[Dict[str, Any]], task_id: str):
     """Асинхронная обработка пакета отгрузок"""
     conn = None
