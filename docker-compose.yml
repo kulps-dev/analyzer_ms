@@ -12,7 +12,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - UVICORN_WORKERS=2  # Увеличиваем количество воркеров
-      - UVICORN_TIMEOUT=120  # Увеличиваем таймаут
+      - UVICORN_TIMEOUT=300  # Увеличиваем таймаут
 
   frontend:
     build:
