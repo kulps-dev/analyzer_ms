@@ -121,33 +121,41 @@ async def startup_event():
     logger.info("Приложение запущено, база данных инициализирована")
 
 async def process_demands_batch(demands: List[Dict[str, Any]], task_id: str):
-    """Асинхронная обработка пакета отгрузок"""
+    """Асинхронная обработка пакета отгрузок с улучшенным логированием"""
     conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         
-        batch_size = 100  # Размер пакета для вставки
+        batch_size = 50  # Уменьшаем размер пакета
         saved_count = 0
         total_count = len(demands)
         
-        # Подготовка данных для batch-вставки
+        logger.info(f"Начало обработки {total_count} отгрузок")
+        
         batch_values = []
         
-        for demand in demands:
+        for idx, demand in enumerate(demands, 1):
             try:
                 values = prepare_demand_data(demand)
                 batch_values.append(values)
                 
-                # Если накопился пакет - вставляем
                 if len(batch_values) >= batch_size:
-                    saved_count += await insert_batch(cur, batch_values)
+                    inserted = await insert_batch(cur, batch_values)
+                    saved_count += inserted
                     batch_values = []
-                    tasks_status[task_id] = {
-                        "status": "processing",
-                        "progress": f"{saved_count}/{total_count}",
-                        "message": "Обработка данных..."
-                    }
+                    
+                    # Обновляем статус задачи каждые 100 записей
+                    if idx % 100 == 0:
+                        logger.info(f"Обработано {idx}/{total_count} записей")
+                        tasks_status[task_id] = {
+                            "status": "processing",
+                            "progress": f"{saved_count}/{total_count}",
+                            "message": f"Обработано {idx} из {total_count}"
+                        }
+                    
+                    # Делаем небольшую паузу после каждого пакета
+                    time.sleep(0.5)
             
             except Exception as e:
                 logger.error(f"Ошибка при обработке отгрузки {demand.get('id')}: {str(e)}")
@@ -158,6 +166,8 @@ async def process_demands_batch(demands: List[Dict[str, Any]], task_id: str):
             saved_count += await insert_batch(cur, batch_values)
         
         conn.commit()
+        logger.info(f"Успешно сохранено {saved_count} из {total_count} записей")
+        
         tasks_status[task_id] = {
             "status": "completed",
             "progress": f"{saved_count}/{total_count}",

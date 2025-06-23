@@ -80,7 +80,7 @@ class MoyskladAPI:
         return all_data
 
     def get_demands(self, start_date: str, end_date: str) -> List[Dict[str, Any]]:
-        """Получить отгрузки за период с пагинацией"""
+        """Получить отгрузки за период с пагинацией и ограничением скорости"""
         url = f"{self.base_url}/entity/demand"
         
         start_date = start_date.split(' ')[0].split('T')[0]
@@ -90,7 +90,8 @@ class MoyskladAPI:
         
         params = {
             "filter": filter_str,
-            "expand": "agent,store,project,salesChannel"
+            "expand": "agent,store,project,salesChannel",
+            "limit": 500  # Уменьшаем размер страницы
         }
         
         logger.info(f"Запрос отгрузок за период с {start_date} по {end_date}")
@@ -99,9 +100,13 @@ class MoyskladAPI:
             demands = self.get_paginated_data(url, params)
             logger.info(f"Получено {len(demands)} отгрузок")
             
-            # Дополнительно получаем полные данные, если они не были получены через expand
-            for demand in demands:
+            # Ограничиваем скорость обогащения данных
+            for i, demand in enumerate(demands, 1):
+                if i % 100 == 0:
+                    logger.info(f"Обогащение данных: обработано {i}/{len(demands)}")
                 self._enrich_demand_data(demand)
+                if i % 50 == 0:
+                    time.sleep(5)  # Делаем паузу каждые 50 запросов
             
             return demands
         
@@ -110,8 +115,11 @@ class MoyskladAPI:
             raise
 
     def _enrich_demand_data(self, demand: Dict[str, Any]):
-        """Обогащение данных отгрузки"""
+        """Обогащение данных отгрузки с обработкой ошибок"""
         try:
+            # Добавляем небольшую задержку перед обогащением данных
+            time.sleep(0.1)
+            
             if "agent" in demand and "name" not in demand["agent"]:
                 counterparty_url = demand["agent"]["meta"]["href"]
                 counterparty_data = self._make_request("GET", counterparty_url).json()
@@ -123,19 +131,26 @@ class MoyskladAPI:
                 demand["store"]["name"] = store_data.get("name", "")
             
             # Обработка проекта
-            if "project" in demand and ("name" not in demand["project"] or not demand["project"]["name"]):
+            if "project" in demand and demand["project"] and ("name" not in demand["project"] or not demand["project"]["name"]):
                 project_url = demand["project"]["meta"]["href"]
                 project_data = self._make_request("GET", project_url).json()
                 demand["project"]["name"] = project_data.get("name", "Без проекта")
             
             # Обработка канала продаж
-            if "salesChannel" in demand and ("name" not in demand["salesChannel"] or not demand["salesChannel"]["name"]):
+            if "salesChannel" in demand and demand["salesChannel"] and ("name" not in demand["salesChannel"] or not demand["salesChannel"]["name"]):
                 sales_channel_url = demand["salesChannel"]["meta"]["href"]
                 sales_channel_data = self._make_request("GET", sales_channel_url).json()
                 demand["salesChannel"]["name"] = sales_channel_data.get("name", "Без канала")
         
         except Exception as e:
             logger.error(f"Ошибка при обогащении данных отгрузки: {str(e)}")
+            # Устанавливаем значения по умолчанию в случае ошибки
+            demand["agent"]["name"] = demand["agent"].get("name", "")
+            demand["store"]["name"] = demand["store"].get("name", "")
+            if "project" in demand:
+                demand["project"]["name"] = demand["project"].get("name", "Без проекта")
+            if "salesChannel" in demand:
+                demand["salesChannel"]["name"] = demand["salesChannel"].get("name", "Без канала")
 
     def get_demand_cost_price(self, demand_id: str) -> float:
         """Получить себестоимость отгрузки"""
