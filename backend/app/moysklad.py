@@ -17,20 +17,31 @@ class MoyskladAPI:
             "Content-Type": "application/json"
         }
         self.retry_count = 3
-        self.retry_delay = 1
+        self.retry_delay = 5  # Увеличиваем задержку между попытками
+        self.request_delay = 0.5  # Задержка между запросами (в секундах)
 
     def _make_request(self, method: str, url: str, **kwargs) -> requests.Response:
-        """Обертка для запросов с повторными попытками"""
+        """Обертка для запросов с повторными попытками и задержкой"""
         for attempt in range(self.retry_count):
             try:
+                time.sleep(self.request_delay)  # Добавляем задержку перед каждым запросом
                 response = requests.request(
                     method,
                     url,
                     headers=self.headers,
                     **kwargs
                 )
+                
+                # Обрабатываем 429 ошибку
+                if response.status_code == 429:
+                    retry_after = int(response.headers.get('Retry-After', 10))
+                    logger.warning(f"Rate limit exceeded. Waiting {retry_after} seconds...")
+                    time.sleep(retry_after)
+                    continue
+                    
                 response.raise_for_status()
                 return response
+                
             except requests.exceptions.RequestException as e:
                 if attempt == self.retry_count - 1:
                     raise
