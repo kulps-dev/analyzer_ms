@@ -3,7 +3,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import psycopg2
-from psycopg2.extras import execute_values
+from psycopg2.extras import execute_batch
 from .moysklad import MoyskladAPI
 from datetime import datetime
 import os
@@ -147,7 +147,7 @@ async def process_demands_batch(demands: List[Dict[str, Any]], task_id: str):
                     batch_values = []
                     
                     # Обновляем статус задачи каждые 100 записей
-                    if idx % 500 == 0:
+                    if idx % 100 == 0:
                         logger.info(f"Обработано {idx}/{total_count} записей")
                         tasks_status[task_id] = {
                             "status": "processing",
@@ -189,7 +189,7 @@ async def process_demands_batch(demands: List[Dict[str, Any]], task_id: str):
             conn.close()
 
 async def insert_batch(cur, batch_values: List[Dict[str, Any]]):
-    """Массовая вставка пакета данных с использованием execute_values"""
+    """Массовая вставка пакета данных"""
     try:
         query = """
             INSERT INTO demands (
@@ -198,7 +198,13 @@ async def insert_batch(cur, batch_values: List[Dict[str, Any]]):
                 admin_data, gdeslon, cityads, ozon, ozon_fbs, yamarket_fbs,
                 yamarket_dbs, yandex_direct, price_ru, wildberries, gis2, seo,
                 programmatic, avito, multiorders, estimated_discount, status, comment
-            ) VALUES %s
+            ) VALUES (
+                %(id)s, %(number)s, %(date)s, %(counterparty)s, %(store)s, %(project)s, %(sales_channel)s,
+                %(amount)s, %(cost_price)s, %(overhead)s, %(profit)s, %(promo_period)s, %(delivery_amount)s,
+                %(admin_data)s, %(gdeslon)s, %(cityads)s, %(ozon)s, %(ozon_fbs)s, %(yamarket_fbs)s,
+                %(yamarket_dbs)s, %(yandex_direct)s, %(price_ru)s, %(wildberries)s, %(gis2)s, %(seo)s,
+                %(programmatic)s, %(avito)s, %(multiorders)s, %(estimated_discount)s, %(status)s, %(comment)s
+            )
             ON CONFLICT (id) DO UPDATE SET
                 number = EXCLUDED.number,
                 date = EXCLUDED.date,
@@ -232,16 +238,7 @@ async def insert_batch(cur, batch_values: List[Dict[str, Any]]):
                 comment = EXCLUDED.comment
         """
         
-        # Исправленный вызов execute_values с правильными скобками
-        execute_values(
-            cur,
-            query,
-            [tuple(d.values()) for d in batch_values],
-            template=None,
-            page_size=len(batch_values)
-        )
-        
-        logger.debug(f"Успешно вставлено {len(batch_values)} записей")
+        execute_batch(cur, query, batch_values)
         return len(batch_values)
     
     except Exception as e:
