@@ -21,10 +21,10 @@ class MoyskladAPI:
         self.request_delay = 0.5  # Задержка между запросами (в секундах)
 
     def _make_request(self, method: str, url: str, **kwargs) -> requests.Response:
-        """Обертка для запросов с повторными попытками"""
+        """Обертка для запросов с повторными попытками и задержкой"""
         for attempt in range(self.retry_count):
             try:
-                time.sleep(self.request_delay)
+                time.sleep(self.request_delay)  # Добавляем задержку перед каждым запросом
                 response = requests.request(
                     method,
                     url,
@@ -32,8 +32,9 @@ class MoyskladAPI:
                     **kwargs
                 )
                 
+                # Обрабатываем 429 ошибку
                 if response.status_code == 429:
-                    retry_after = int(response.headers.get('Retry-After', 30))  # Увеличиваем дефолтную паузу
+                    retry_after = int(response.headers.get('Retry-After', 10))
                     logger.warning(f"Rate limit exceeded. Waiting {retry_after} seconds...")
                     time.sleep(retry_after)
                     continue
@@ -44,10 +45,8 @@ class MoyskladAPI:
             except requests.exceptions.RequestException as e:
                 if attempt == self.retry_count - 1:
                     raise
-                wait_time = min(60, self.retry_delay * (attempt + 1))  # Ограничиваем максимальное время ожидания
-                logger.warning(f"Attempt {attempt + 1} failed: {str(e)}. Waiting {wait_time} seconds...")
-                time.sleep(wait_time)
-        
+                logger.warning(f"Attempt {attempt + 1} failed: {str(e)}. Retrying...")
+                time.sleep(self.retry_delay * (attempt + 1))
         raise Exception("All retry attempts failed")
 
     def get_paginated_data(self, url: str, params: Dict[str, Any] = None) -> List[Dict[str, Any]]:
