@@ -5,78 +5,54 @@ document.addEventListener('DOMContentLoaded', function() {
         locale: "ru"
     });
 
-    // Обработчик кнопки "Скачать Excel"
-    document.getElementById('export-excel-btn').addEventListener('click', async function() {
-        const startDate = document.getElementById('start-date').value;
-        const endDate = document.getElementById('end-date').value;
+// Обработчик кнопки "Скачать Excel"
+document.getElementById('export-excel-btn').addEventListener('click', async function() {
+    const startDate = document.getElementById('start-date').value;
+    const endDate = document.getElementById('end-date').value;
+    
+    if (!startDate || !endDate) {
+        showAlert('Пожалуйста, укажите период анализа', 'error');
+        return;
+    }
+
+    try {
+        showStatus('Загрузка данных...', 'loading');
         
-        if (!startDate || !endDate) {
-            showAlert('Пожалуйста, укажите период анализа', 'error');
-            return;
+        const response = await fetch('/api/export/excel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                start_date: startDate + " 00:00:00",
+                end_date: endDate + " 23:59:59"
+            })
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Ошибка при загрузке файла');
         }
 
-        try {
-            showStatus('Загрузка данных...', 'loading');
-            
-            const response = await fetch('/api/export/excel', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    start_date: startDate + " 00:00:00",  // Добавляем время
-                    end_date: endDate + " 23:59:59"       // Добавляем время
-                })
-            });
-
-            if (!response.ok) {
-                throw new Error(await response.text());
-            }
-
-            const result = await response.json();
-            downloadExcel(result.file, result.filename);
-            
-            showStatus('Данные успешно загружены', 'success');
-            showAlert('Excel файл успешно сформирован', 'success');
-        } catch (error) {
-            console.error('Ошибка:', error);
-            showStatus('Ошибка при загрузке данных', 'error');
-            showAlert(error.message, 'error');
-        }
-    });
-    // Добавьте обработчик для новой кнопки
-    document.getElementById('save-to-db-btn').addEventListener('click', async function() {
-        const startDate = document.getElementById('start-date').value;
-        const endDate = document.getElementById('end-date').value;
+        // ВАЖНО: НЕ используем response.json(), используем response.blob()
+        const blob = await response.blob();
         
-        if (!startDate || !endDate) {
-            showAlert('Пожалуйста, укажите период анализа', 'error');
-            return;
-        }
-
-        try {
-            showStatus('Сохранение данных в БД...', 'loading');
-            
-            const response = await fetch('/api/save-to-db', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    start_date: startDate + " 00:00:00",
-                    end_date: endDate + " 23:59:59"
-                })
-            });
-
-            if (!response.ok) {
-                throw new Error(await response.text());
-            }
-
-            const result = await response.json();
-            showStatus('Данные успешно сохранены', 'success');
-            showAlert(result.message, 'success');
-        } catch (error) {
-            console.error('Ошибка:', error);
-            showStatus('Ошибка при сохранении данных', 'error');
-            showAlert(error.message, 'error');
-        }
-    });
+        // Создаем ссылку для скачивания
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `report_${startDate}_to_${endDate}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        
+        showStatus('Данные успешно загружены', 'success');
+        showAlert('Excel файл успешно сформирован', 'success');
+    } catch (error) {
+        console.error('Ошибка:', error);
+        showStatus('Ошибка при загрузке данных', 'error');
+        showAlert(error.message || 'Произошла ошибка при загрузке файла', 'error');
+    }
+});
 
     function downloadExcel(hexData, filename) {
         const bytes = new Uint8Array(hexData.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
