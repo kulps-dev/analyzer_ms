@@ -214,4 +214,46 @@ class MoyskladAPI:
                 'sales_channels': set()
             }
 
-    
+            for demand in demands:
+                if "agent" in demand and "name" not in demand["agent"]:
+                    urls_to_fetch['agents'].add(demand["agent"]["meta"]["href"])
+                if "store" in demand and "name" not in demand["store"]:
+                    urls_to_fetch['stores'].add(demand["store"]["meta"]["href"])
+                if "project" in demand and demand["project"] and ("name" not in demand["project"] or not demand["project"]["name"]):
+                    urls_to_fetch['projects'].add(demand["project"]["meta"]["href"])
+                if "salesChannel" in demand and demand["salesChannel"] and ("name" not in demand["salesChannel"] or not demand["salesChannel"]["name"]):
+                    urls_to_fetch['sales_channels'].add(demand["salesChannel"]["meta"]["href"])
+
+            # Получаем все данные одним запросом для каждого типа
+            fetched_data = {
+                'agents': {},
+                'stores': {},
+                'projects': {},
+                'sales_channels': {}
+            }
+
+            for entity_type, urls in urls_to_fetch.items():
+                if urls:
+                    for url in urls:
+                        try:
+                            response = self._make_request("GET", url)
+                            data = response.json()
+                            fetched_data[entity_type][url] = data.get("name", "")
+                            time.sleep(0.1)  # Небольшая задержка между запросами
+                        except Exception as e:
+                            logger.warning(f"Ошибка при получении {entity_type} {url}: {str(e)}")
+                            fetched_data[entity_type][url] = ""
+
+            # Применяем полученные данные ко всем отгрузкам
+            for demand in demands:
+                if "agent" in demand and "name" not in demand["agent"]:
+                    demand["agent"]["name"] = fetched_data['agents'].get(demand["agent"]["meta"]["href"], "")
+                if "store" in demand and "name" not in demand["store"]:
+                    demand["store"]["name"] = fetched_data['stores'].get(demand["store"]["meta"]["href"], "")
+                if "project" in demand and demand["project"]:
+                    demand["project"]["name"] = fetched_data['projects'].get(demand["project"]["meta"]["href"], "Без проекта")
+                if "salesChannel" in demand and demand["salesChannel"]:
+                    demand["salesChannel"]["name"] = fetched_data['sales_channels'].get(demand["salesChannel"]["meta"]["href"], "Без канала")
+
+        except Exception as e:
+            logger.error(f"Ошибка при пакетном обогащении данных: {str(e)}")
