@@ -14,7 +14,8 @@ import asyncio
 from typing import List, Dict, Any
 import logging
 import uuid
-from pydantic import validator
+from pydantic import validator, Field
+import re
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO)
@@ -37,22 +38,37 @@ DB_CONFIG = {
 moysklad = MoyskladAPI(token="2e61e26f0613cf33fab5f31cf105302aa2d607c3")
 
 class DateRange(BaseModel):
-    start_date: str
-    end_date: str
+    start_date: str = Field(..., example="2023-01-01")
+    end_date: str = Field(..., example="2023-12-31")
 
     @validator('start_date', 'end_date')
     def validate_date_format(cls, v):
         try:
-            # Пробуем распарсить дату в разных форматах
-            if ' ' in v:  # Если есть время (формат "YYYY-MM-DD HH:MM:SS")
-                datetime.strptime(v, "%Y-%m-%d %H:%M:%S")
-            elif 'T' in v:  # Если ISO формат с "T"
+            # Проверяем разные форматы дат
+            if 'T' in v:  # ISO формат с временем
                 datetime.fromisoformat(v.replace("Z", "+00:00"))
-            else:  # Просто дата
+            elif ' ' in v:  # Дата и время
+                datetime.strptime(v, "%Y-%m-%d %H:%M:%S")
+            else:  # Только дата
                 datetime.strptime(v, "%Y-%m-%d")
             return v
-        except ValueError:
-            raise ValueError("Неверный формат даты. Используйте YYYY-MM-DD или YYYY-MM-DD HH:MM:SS")
+        except ValueError as e:
+            raise ValueError(f"Неверный формат даты: {v}. Используйте YYYY-MM-DD, YYYY-MM-DD HH:MM:SS или ISO формат. Ошибка: {str(e)}")
+
+def normalize_date(date_str: str) -> str:
+    """Нормализует дату к формату YYYY-MM-DD"""
+    try:
+        if 'T' in date_str:  # ISO формат
+            dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+            return dt.strftime("%Y-%m-%d")
+        elif ' ' in date_str:  # Дата и время
+            dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+            return dt.strftime("%Y-%m-%d")
+        else:  # Уже в правильном формате
+            datetime.strptime(date_str, "%Y-%m-%d")  # Проверка формата
+            return date_str
+    except ValueError:
+        raise ValueError(f"Неверный формат даты: {date_str}")
 
 class BatchProcessResponse(BaseModel):
     task_id: str
@@ -579,19 +595,12 @@ async def get_task_status(task_id: str):
 async def export_excel(date_range: DateRange):
     conn = None
     try:
-        # Преобразуем даты к нужному формату
-        try:
-            # Обрабатываем дату с временем или без
-            start_date_str = date_range.start_date.split(' ')[0]  # Берем только часть с датой
-            end_date_str = date_range.end_date.split(' ')[0]
-            
-            start_date = datetime.strptime(start_date_str, "%Y-%m-%d").strftime("%Y-%m-%d")
-            end_date = datetime.strptime(end_date_str, "%Y-%m-%d").strftime("%Y-%m-%d")
-            
-            filename = f"report_{start_date}_to_{end_date}.xlsx"
-        except ValueError as e:
-            logger.error(f"Неверный формат даты: {str(e)}")
-            raise HTTPException(status_code=400, detail="Неверный формат даты. Используйте YYYY-MM-DD или YYYY-MM-DD HH:MM:SS")
+        # Нормализуем даты
+        start_date = normalize_date(date_range.start_date)
+        end_date = normalize_date(date_range.end_date)
+        
+        # Создаем имя файла
+        filename = f"report_{start_date}_to_{end_date}.xlsx"
 
         conn = get_db_connection()
         cur = conn.cursor()
@@ -631,7 +640,7 @@ async def export_excel(date_range: DateRange):
         ]
         
         # Применяем стили к листу отгрузок
-        apply_excel_styles(ws_demands, demands_headers, demands_rows, numeric_columns=[7, 8, 9, 10, 12] + list(range(13, 29)), profit_column=10)
+        apply_excel_styles(ws_demands, demands_headers, demands_rows, numeric_columns=[6, 7, 8, 9, 11] + list(range(12, 28)), profit_column=9)
         
         # ===== Второй лист - Отчет по товарам =====
         cur.execute("""
@@ -658,11 +667,11 @@ async def export_excel(date_range: DateRange):
             "Накладные расходы", "Прибыль", "Акционный период", "Сумма доставки",
             "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS", "Яндекс Маркет FBS",
             "Яндекс Маркет DBS", "Яндекс Директ", "Price ru", "Wildberries", "2Gis", "SEO",
-            "Программатик", "Авито", "Мультиканальные заказы", "Примеренная скидка"
+            "Программатик", "Авито", "Мультиканальные заказы", "Примерная скидка"
         ]
         
         # Применяем стили к листу товаров
-        apply_excel_styles(ws_items, items_headers, items_rows, numeric_columns=[8, 9, 10, 11, 14, 15, 17] + list(range(18, 33)), profit_column=15)
+        apply_excel_styles(ws_items, items_headers, items_rows, numeric_columns=[7, 8, 9, 10, 13, 14, 16] + list(range(17, 32)), profit_column=14)
         
         # Создаем буфер для сохранения файла
         buffer = io.BytesIO()
