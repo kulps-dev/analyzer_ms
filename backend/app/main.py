@@ -43,10 +43,14 @@ class DateRange(BaseModel):
     @validator('start_date', 'end_date')
     def validate_date_format(cls, v):
         try:
-            datetime.strptime(v, "%Y-%m-%d")
+            # Пробуем распарсить дату с временем или без
+            if ' ' in v or 'T' in v:
+                datetime.strptime(v.split(' ')[0].split('T')[0], "%Y-%m-%d")
+            else:
+                datetime.strptime(v, "%Y-%m-%d")
             return v
         except ValueError:
-            raise ValueError("Неверный формат даты. Используйте YYYY-MM-DD")
+            raise ValueError("Неверный формат даты. Используйте YYYY-MM-DD или YYYY-MM-DD HH:MM:SS")
 
 class BatchProcessResponse(BaseModel):
     task_id: str
