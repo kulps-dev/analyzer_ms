@@ -5,68 +5,54 @@ document.addEventListener('DOMContentLoaded', function() {
         locale: "ru"
     });
 
-// Обработчик кнопки "Скачать Excel"
-document.getElementById('export-excel-btn').addEventListener('click', async function() {
-    const startDate = document.getElementById('start-date').value;
-    const endDate = document.getElementById('end-date').value;
-    
-    if (!startDate || !endDate) {
-        showAlert('Пожалуйста, укажите период анализа', 'error');
-        return;
-    }
-
-    try {
-        showStatus('Загрузка данных...', 'loading');
+    // Обработчик кнопки "Скачать Excel"
+    document.getElementById('export-excel-btn').addEventListener('click', async function() {
+        const startDate = document.getElementById('start-date').value;
+        const endDate = document.getElementById('end-date').value;
         
-        const response = await fetch('/api/export/excel', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                start_date: startDate + " 00:00:00",
-                end_date: endDate + " 23:59:59"
-            })
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(errorText || 'Ошибка при загрузке файла');
+        if (!startDate || !endDate) {
+            showAlert('Пожалуйста, укажите период анализа', 'error');
+            return;
         }
 
-        // ВАЖНО: НЕ используем response.json(), используем response.blob()
-        const blob = await response.blob();
-        
-        // Создаем ссылку для скачивания
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `report_${startDate}_to_${endDate}.xlsx`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-        
-        showStatus('Данные успешно загружены', 'success');
-        showAlert('Excel файл успешно сформирован', 'success');
-    } catch (error) {
-        console.error('Ошибка:', error);
-        showStatus('Ошибка при загрузке данных', 'error');
-        showAlert(error.message || 'Произошла ошибка при загрузке файла', 'error');
-    }
-});
+        try {
+            showStatus('Загрузка данных...', 'loading');
+            
+            const response = await fetch('/api/export/excel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    start_date: startDate + " 00:00:00",
+                    end_date: endDate + " 23:59:59"
+                })
+            });
 
-    function downloadExcel(hexData, filename) {
-        const bytes = new Uint8Array(hexData.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-        const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-        const url = URL.createObjectURL(blob);
-        
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    }
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(errorText || 'Ошибка при загрузке файла');
+            }
+
+            // ВАЖНО: НЕ используем response.json(), используем response.blob()
+            const blob = await response.blob();
+            
+            // Создаем ссылку для скачивания
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `report_${startDate}_to_${endDate}.xlsx`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            showStatus('Данные успешно загружены', 'success');
+            showAlert('Excel файл успешно сформирован', 'success');
+        } catch (error) {
+            console.error('Ошибка:', error);
+            showStatus('Ошибка при загрузке данных', 'error');
+            showAlert(error.message || 'Произошла ошибка при загрузке файла', 'error');
+        }
+    });
 
     function showStatus(message, type) {
         const statusBar = document.getElementById('status-bar');
