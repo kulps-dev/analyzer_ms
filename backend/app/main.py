@@ -32,11 +32,11 @@ app.add_middleware(
 
 # Настройки базы данных
 DB_CONFIG = {
-    "host": "87.228.99.200",
-    "port": 5432,
-    "dbname": "MS",
-    "user": "louella",
-    "password": "XBcMJoEO1ljb",
+    "host": os.getenv("DB_HOST", "db"),  # Используем имя сервиса из docker-compose
+    "port": int(os.getenv("DB_PORT", 5432)),
+    "dbname": os.getenv("DB_NAME", "MS"),
+    "user": os.getenv("DB_USER", "louella"),
+    "password": os.getenv("DB_PASSWORD", "XBcMJoEO1ljb"),
     "sslmode": "verify-ca",
     "sslrootcert": "/root/.postgresql/root.crt"
 }
@@ -591,104 +591,23 @@ async def export_excel(date_range: DateRange):
 
 @app.post("/api/export/products-excel")
 async def export_products_excel(date_range: DateRange):
-    """Экспорт отчета по товарам в Excel"""
+    """Экспорт отчета по товарам в Excel с двумя листами"""
     conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         
-        cur.execute("""
-            SELECT 
-                d.number AS shipment_number,
-                d.date,
-                d.counterparty,
-                d.store,
-                d.project,
-                d.sales_channel,
-                dp.product_name,
-                dp.quantity,
-                dp.price,
-                dp.price * dp.quantity AS sum,
-                dp.cost_price,
-                dp.cost_price * dp.quantity AS cost_sum,
-                dp.article,
-                dp.code,
-                d.overhead,
-                (dp.price * dp.quantity) - (dp.cost_price * dp.quantity) - 
-                (d.overhead * (dp.price * dp.quantity / NULLIF(d.amount, 0))) AS profit,
-                d.promo_period,
-                d.delivery_amount,
-                d.admin_data,
-                d.gdeslon,
-                d.cityads,
-                d.ozon,
-                d.ozon_fbs,
-                d.yamarket_fbs,
-                d.yamarket_dbs,
-                d.yandex_direct,
-                d.price_ru,
-                d.wildberries,
-                d.gis2,
-                d.seo,
-                d.programmatic,
-                d.avito,
-                d.multiorders,
-                d.estimated_discount
-            FROM demand_positions dp
-            JOIN demands d ON dp.demand_id = d.id
-            WHERE d.date BETWEEN %s AND %s
-            ORDER BY d.date DESC
-        """, (date_range.start_date, date_range.end_date))
-        
-        rows = cur.fetchall()
-        
+        # Создаем книгу Excel
         wb = Workbook()
-        ws = wb.active
-        ws.title = "Отчет по товарам"
         
-        headers = [
-            "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
-            "Товар", "Количество", "Цена", "Сумма", "Себестоимость", "Сумма себестоимости",
-            "Артикул", "Код", "Накладные расходы", "Прибыль", "Акционный период",
-            "Сумма доставки", "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS",
-            "Яндекс Маркет FBS", "Яндекс Маркет DBS", "Яндекс Директ", "Price ru",
-            "Wildberries", "2Gis", "SEO", "Программатик", "Авито", "Мультиканальные заказы",
-            "Примерная скидка"
-        ]
+        # Лист 1: Детализированный отчет по товарам
+        ws1 = wb.active
+        ws1.title = "Товары детально"
+        await fill_products_sheet(ws1, cur, date_range)
         
-        ws.append(headers)
-        
-        # Форматирование заголовков
-        for col in range(1, len(headers) + 1):
-            cell = ws.cell(row=1, column=col)
-            cell.font = header_font
-            cell.alignment = center_alignment
-            cell.fill = header_fill
-            cell.border = thin_border
-            ws.column_dimensions[get_column_letter(col)].width = max(15, len(headers[col-1]) * 1.2)
-        
-        # Добавление данных
-        for row in rows:
-            ws.append(row)
-        
-        # Применение стилей
-        numeric_columns = [8, 9, 10, 11, 12, 15, 18]  # Номера столбцов с числами
-        for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=len(headers)):
-            for cell in row:
-                cell.border = thin_border
-                if cell.column in numeric_columns:
-                    cell.number_format = '#,##0.00'
-                    cell.alignment = right_alignment
-                    if cell.column == 15 and cell.value and cell.value < 0:  # Прибыль
-                        cell.fill = negative_fill
-                elif cell.column == 2:  # Дата
-                    cell.number_format = 'DD.MM.YYYY'
-                    cell.alignment = center_alignment
-                else:
-                    cell.alignment = left_alignment
-        
-        ws.freeze_panes = 'A2'
-        ws.auto_filter.ref = ws.dimensions
+        # Лист 2: Сводный отчет по отгрузкам
+        ws2 = wb.create_sheet(title="Отгрузки сводно")
+        await fill_shipments_sheet(ws2, cur, date_range)
         
         buffer = io.BytesIO()
         wb.save(buffer)
@@ -696,10 +615,146 @@ async def export_products_excel(date_range: DateRange):
         
         return {
             "file": buffer.read().hex(),
-            "filename": f"Отчет_по_товарам_{date_range.start_date}_по_{date_range.end_date}.xlsx"
+            "filename": f"Полный_отчет_{date_range.start_date}_по_{date_range.end_date}.xlsx"
         }
+        
     except Exception as e:
+        logger.error(f"Ошибка при экспорте: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn:
             conn.close()
+
+async def fill_products_sheet(ws, cur, date_range):
+    """Заполнение листа с детализированными данными по товарам"""
+    cur.execute("""
+        SELECT 
+            d.number AS shipment_number,
+            d.date,
+            d.counterparty,
+            d.store,
+            d.project,
+            d.sales_channel,
+            dp.product_name,
+            dp.quantity,
+            dp.price,
+            dp.price * dp.quantity AS sum,
+            dp.cost_price,
+            dp.cost_price * dp.quantity AS cost_sum,
+            dp.article,
+            dp.code,
+            d.overhead,
+            (dp.price * dp.quantity) - (dp.cost_price * dp.quantity) - 
+            (d.overhead * (dp.price * dp.quantity / NULLIF(d.amount, 0))) AS profit,
+            d.promo_period,
+            d.delivery_amount,
+            d.admin_data,
+            d.gdeslon,
+            d.cityads,
+            d.ozon,
+            d.ozon_fbs,
+            d.yamarket_fbs,
+            d.yamarket_dbs,
+            d.yandex_direct,
+            d.price_ru,
+            d.wildberries,
+            d.gis2,
+            d.seo,
+            d.programmatic,
+            d.avito,
+            d.multiorders,
+            d.estimated_discount
+        FROM demand_positions dp
+        JOIN demands d ON dp.demand_id = d.id
+        WHERE d.date BETWEEN %s AND %s
+        ORDER BY d.date DESC
+    """, (date_range.start_date, date_range.end_date))
+    
+    headers = [
+        "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
+        "Товар", "Количество", "Цена", "Сумма", "Себестоимость", "Сумма себестоимости",
+        "Артикул", "Код", "Накладные расходы", "Прибыль", "Акционный период",
+        "Сумма доставки", "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS",
+        "Яндекс Маркет FBS", "Яндекс Маркет DBS", "Яндекс Директ", "Price ru",
+        "Wildberries", "2Gis", "SEO", "Программатик", "Авито", "Мультиканальные заказы",
+        "Примерная скидка"
+    ]
+    
+    ws.append(headers)
+    
+    # Форматирование заголовков
+    for col in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=col)
+        cell.font = header_font
+        cell.alignment = center_alignment
+        cell.fill = header_fill
+        cell.border = thin_border
+        ws.column_dimensions[get_column_letter(col)].width = max(15, len(headers[col-1]) * 1.2)
+    
+    # Добавление данных и форматирование
+    for row in cur.fetchall():
+        ws.append(row)
+    
+    apply_worksheet_styles(ws)
+
+async def fill_shipments_sheet(ws, cur, date_range):
+    """Заполнение листа с сводными данными по отгрузкам"""
+    cur.execute("""
+        SELECT 
+            number, date, counterparty, store, project, sales_channel,
+            amount, cost_price, overhead, profit, promo_period, delivery_amount,
+            admin_data, gdeslon, cityads, ozon, ozon_fbs, yamarket_fbs,
+            yamarket_dbs, yandex_direct, price_ru, wildberries, gis2, seo,
+            programmatic, avito, multiorders, estimated_discount
+        FROM demands
+        WHERE date BETWEEN %s AND %s
+        ORDER BY date DESC
+    """, (date_range.start_date, date_range.end_date))
+    
+    headers = [
+        "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
+        "Сумма", "Себестоимость", "Накладные расходы", "Прибыль", "Акционный период",
+        "Сумма доставки", "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS",
+        "Яндекс Маркет FBS", "Яндекс Маркет DBS", "Яндекс Директ", "Price ru",
+        "Wildberries", "2Gis", "SEO", "Программатик", "Авито", "Мультиканальные заказы",
+        "Примерная скидка"
+    ]
+    
+    ws.append(headers)
+    
+    # Форматирование заголовков
+    for col in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=col)
+        cell.font = header_font
+        cell.alignment = center_alignment
+        cell.fill = header_fill
+        cell.border = thin_border
+        ws.column_dimensions[get_column_letter(col)].width = max(15, len(headers[col-1]) * 1.2)
+    
+    # Добавление данных и форматирование
+    for row in cur.fetchall():
+        ws.append(row)
+    
+    apply_worksheet_styles(ws)
+
+def apply_worksheet_styles(ws):
+    """Применение стилей к листу"""
+    numeric_columns = [7, 8, 9, 10, 12] + list(range(13, 29))  # Числовые столбцы
+    profit_column = 10  # Столбец с прибылью
+    
+    for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
+        for cell in row:
+            cell.border = thin_border
+            if cell.column in numeric_columns:
+                cell.number_format = '#,##0.00'
+                cell.alignment = right_alignment
+                if cell.column == profit_column and cell.value and cell.value < 0:
+                    cell.fill = negative_fill
+            elif cell.column == 2:  # Дата
+                cell.number_format = 'DD.MM.YYYY'
+                cell.alignment = center_alignment
+            else:
+                cell.alignment = left_alignment
+    
+    ws.freeze_panes = 'A2'
+    ws.auto_filter.ref = ws.dimensions

@@ -1,6 +1,23 @@
 version: '3.8'
 
 services:
+  db:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: louella
+      POSTGRES_PASSWORD: XBcMJoEO1ljb
+      POSTGRES_DB: MS
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U louella -d MS"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   backend:
     volumes:
       - ~/.postgresql:/root/.postgresql:ro
@@ -11,8 +28,16 @@ services:
     restart: unless-stopped
     environment:
       - PYTHONUNBUFFERED=1
-      - UVICORN_WORKERS=2  # Увеличиваем количество воркеров
-      - UVICORN_TIMEOUT=300  # Увеличиваем таймаут
+      - UVICORN_WORKERS=2
+      - UVICORN_TIMEOUT=300
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=MS
+      - DB_USER=louella
+      - DB_PASSWORD=XBcMJoEO1ljb
+    depends_on:
+      db:
+        condition: service_healthy
 
   frontend:
     build:
@@ -23,3 +48,6 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
+
+volumes:
+  postgres_data:
