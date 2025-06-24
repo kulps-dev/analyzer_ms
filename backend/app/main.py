@@ -1,37 +1,25 @@
-import time
-import io
-import uuid
-import logging
-import asyncio
-from datetime import datetime
-from typing import List, Dict, Any, Optional
-
+from fastapi.responses import StreamingResponse
+import time 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import psycopg2
 from psycopg2.extras import execute_batch
+from .moysklad import MoyskladAPI
+from datetime import datetime
+import os
 from openpyxl import Workbook
-from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
-from openpyxl.utils import get_column_letter
-
-from moysklad import MoyskladAPI  # Импортируем класс для работы с API МойСклад
+import io
+import asyncio
+from typing import List, Dict, Any
+import logging
+import uuid
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
-
-# Настройки CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Настройки базы данных
 DB_CONFIG = {
@@ -47,7 +35,6 @@ DB_CONFIG = {
 # Инициализация API МойСклад
 moysklad = MoyskladAPI(token="2e61e26f0613cf33fab5f31cf105302aa2d607c3")
 
-# Модели данных
 class DateRange(BaseModel):
     start_date: str
     end_date: str
@@ -61,7 +48,6 @@ class BatchProcessResponse(BaseModel):
 tasks_status = {}
 
 def get_db_connection():
-    """Создает соединение с базой данных"""
     return psycopg2.connect(**DB_CONFIG)
 
 def init_db():
@@ -71,7 +57,7 @@ def init_db():
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # Таблица demands
+        # Создаем таблицу demands, если не существует
         cur.execute("""
             CREATE TABLE IF NOT EXISTS demands (
                 id VARCHAR(255) PRIMARY KEY,
@@ -108,7 +94,7 @@ def init_db():
             )
         """)
         
-        # Таблица demand_items
+        # Создаем таблицу demand_items, если не существует
         cur.execute("""
             CREATE TABLE IF NOT EXISTS demand_items (
                 id VARCHAR(255) PRIMARY KEY,
@@ -160,148 +146,14 @@ def init_db():
         if conn:
             conn.close()
 
-def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
-    """Подготовка данных отгрузки для вставки в БД"""
-    demand_id = str(demand.get("id", ""))
-    attributes = demand.get("attributes", [])
-    
-    # Обработка накладных расходов (overhead)
-    overhead_data = demand.get("overhead", {})
-    overhead_sum = float(overhead_data.get("sum", 0)) / 100
-    
-    # Получаем себестоимость
-    cost_price = moysklad.get_demand_cost_price(demand_id)
-    
-    # Основные данные
-    values = {
-        "id": demand_id[:255],
-        "number": str(demand.get("name", ""))[:50],
-        "date": demand.get("moment", ""),
-        "counterparty": str(demand.get("agent", {}).get("name", ""))[:255],
-        "store": str(demand.get("store", {}).get("name", ""))[:255],
-        "project": str(demand.get("project", {}).get("name", "Без проекта"))[:255],
-        "sales_channel": str(demand.get("salesChannel", {}).get("name", "Без канала"))[:255],
-        "amount": float(demand.get("sum", 0)) / 100,
-        "cost_price": cost_price,
-        "overhead": overhead_sum,
-        "profit": (float(demand.get("sum", 0)) / 100) - cost_price - overhead_sum,
-        "status": str(demand.get("state", {}).get("name", ""))[:100],
-        "comment": str(demand.get("description", ""))[:255]
-    }
-
-    # Обработка атрибутов
-    attr_fields = {
-        "promo_period": ("Акционный период", ""),
-        "delivery_amount": ("Сумма доставки", 0),
-        "admin_data": ("Адмидат", 0),
-        "gdeslon": ("ГдеСлон", 0),
-        "cityads": ("CityAds", 0),
-        "ozon": ("Ozon", 0),
-        "ozon_fbs": ("Ozon FBS", 0),
-        "yamarket_fbs": ("Яндекс Маркет FBS", 0),
-        "yamarket_dbs": ("Яндекс Маркет DBS", 0),
-        "yandex_direct": ("Яндекс Директ", 0),
-        "price_ru": ("Price ru", 0),
-        "wildberries": ("Wildberries", 0),
-        "gis2": ("2Gis", 0),
-        "seo": ("SEO", 0),
-        "programmatic": ("Программатик", 0),
-        "avito": ("Авито", 0),
-        "multiorders": ("Мультиканальные заказы", 0),
-        "estimated_discount": ("Примерная скидка", 0)
-    }
-
-    for field, (attr_name, default) in attr_fields.items():
-        if field.endswith("_amount") or field == "estimated_discount":
-            try:
-                values[field] = float(get_attr_value(attributes, attr_name, default))
-            except (ValueError, TypeError):
-                values[field] = 0.0
-        else:
-            values[field] = str(get_attr_value(attributes, attr_name, default))[:255]
-    
-    return values
-
-def prepare_demand_item_data(demand: Dict[str, Any], position: Dict[str, Any]) -> Dict[str, Any]:
-    """Подготовка данных позиции отгрузки для вставки в БД"""
-    demand_id = str(demand.get("id", ""))
-    attributes = demand.get("attributes", [])
-    
-    # Основные данные из позиции
-    values = {
-        "id": f"{demand_id}_{position.get('id', '')}"[:255],
-        "demand_id": demand_id[:255],
-        "demand_number": str(demand.get("name", ""))[:50],
-        "date": demand.get("moment", ""),
-        "counterparty": str(demand.get("agent", {}).get("name", ""))[:255],
-        "store": str(demand.get("store", {}).get("name", ""))[:255],
-        "project": str(demand.get("project", {}).get("name", "Без проекта"))[:255],
-        "sales_channel": str(demand.get("salesChannel", {}).get("name", "Без канала"))[:255],
-        "product_name": str(position.get("product_name", ""))[:255],
-        "quantity": float(position.get("quantity", 0)),
-        "price": float(position.get("price", 0)) / 100,
-        "amount": (float(position.get("price", 0)) / 100) * float(position.get("quantity", 0)),
-        "article": str(position.get("article", ""))[:255],
-        "code": str(position.get("code", ""))[:255],
-    }
-    
-    # Получаем себестоимость для позиции
-    cost_price = moysklad.get_position_cost_price(position)
-    values["cost_price"] = cost_price
-    values["profit"] = values["amount"] - cost_price
-    
-    # Обработка накладных расходов
-    overhead_data = demand.get("overhead", {})
-    overhead_sum = float(overhead_data.get("sum", 0)) / 100
-    values["overhead"] = overhead_sum * (values["amount"] / (float(demand.get("sum", 1)) / 100)) if float(demand.get("sum", 0)) > 0 else 0
-    
-    # Обработка атрибутов
-    attr_fields = {
-        "promo_period": ("Акционный период", ""),
-        "delivery_amount": ("Сумма доставки", 0),
-        "admin_data": ("Адмидат", 0),
-        "gdeslon": ("ГдеСлон", 0),
-        "cityads": ("CityAds", 0),
-        "ozon": ("Ozon", 0),
-        "ozon_fbs": ("Ozon FBS", 0),
-        "yamarket_fbs": ("Яндекс Маркет FBS", 0),
-        "yamarket_dbs": ("Яндекс Маркет DBS", 0),
-        "yandex_direct": ("Яндекс Директ", 0),
-        "price_ru": ("Price ru", 0),
-        "wildberries": ("Wildberries", 0),
-        "gis2": ("2Gis", 0),
-        "seo": ("SEO", 0),
-        "programmatic": ("Программатик", 0),
-        "avito": ("Авито", 0),
-        "multiorders": ("Мультиканальные заказы", 0),
-        "estimated_discount": ("Примерная скидка", 0)
-    }
-    
-    for field, (attr_name, default) in attr_fields.items():
-        if field.endswith("_amount") or field == "estimated_discount":
-            try:
-                values[field] = float(get_attr_value(attributes, attr_name, default))
-            except (ValueError, TypeError):
-                values[field] = 0.0
-        else:
-            values[field] = str(get_attr_value(attributes, attr_name, default))[:255]
-    
-    return values
-
-def get_attr_value(attrs, attr_name, default=""):
-    """Безопасное извлечение атрибутов"""
-    if not attrs:
-        return default
-    for attr in attrs:
-        if attr.get("name") == attr_name:
-            value = attr.get("value")
-            if isinstance(value, dict):
-                return value.get("name", str(value))
-            return str(value) if value is not None else default
-    return default
+@app.on_event("startup")
+async def startup_event():
+    """Действия при старте приложения"""
+    init_db()
+    logger.info("Приложение запущено, база данных инициализирована")
 
 async def process_demands_batch(demands: List[Dict[str, Any]], task_id: str):
-    """Асинхронная обработка пакета отгрузок"""
+    """Асинхронная обработка пакета отгрузок с улучшенным логированием"""
     conn = None
     try:
         conn = get_db_connection()
@@ -496,14 +348,147 @@ async def insert_batch(cur, batch_values: List[Dict[str, Any]], table_name: str)
         logger.error(f"Ошибка при массовой вставке в {table_name}: {str(e)}")
         return 0
 
-# Эндпоинты
-@app.on_event("startup")
-async def startup_event():
-    """Действия при старте приложения"""
-    init_db()
-    logger.info("Приложение запущено, база данных инициализирована")
+def prepare_demand_item_data(demand: Dict[str, Any], position: Dict[str, Any]) -> Dict[str, Any]:
+    """Подготовка данных позиции отгрузки для вставки в БД"""
+    demand_id = str(demand.get("id", ""))
+    attributes = demand.get("attributes", [])
+    
+    # Основные данные из позиции
+    values = {
+        "id": f"{demand_id}_{position.get('id', '')}"[:255],
+        "demand_id": demand_id[:255],
+        "demand_number": str(demand.get("name", ""))[:50],
+        "date": demand.get("moment", ""),
+        "counterparty": str(demand.get("agent", {}).get("name", ""))[:255],
+        "store": str(demand.get("store", {}).get("name", ""))[:255],
+        "project": str(demand.get("project", {}).get("name", "Без проекта"))[:255],
+        "sales_channel": str(demand.get("salesChannel", {}).get("name", "Без канала"))[:255],
+        "product_name": str(position.get("product_name", ""))[:255],
+        "quantity": float(position.get("quantity", 0)),
+        "price": float(position.get("price", 0)) / 100,
+        "amount": (float(position.get("price", 0)) / 100) * float(position.get("quantity", 0)),
+        "article": str(position.get("article", ""))[:255],
+        "code": str(position.get("code", ""))[:255],
+    }
+    
+    # Получаем себестоимость для позиции
+    cost_price = moysklad.get_position_cost_price(position)
+    values["cost_price"] = cost_price
+    values["profit"] = values["amount"] - cost_price
+    
+    # Обработка накладных расходов
+    overhead_data = demand.get("overhead", {})
+    overhead_sum = float(overhead_data.get("sum", 0)) / 100
+    values["overhead"] = overhead_sum * (values["amount"] / (float(demand.get("sum", 1)) / 100)) if float(demand.get("sum", 0)) > 0 else 0
+    
+    # Обработка атрибутов (аналогично prepare_demand_data)
+    attr_fields = {
+        "promo_period": ("Акционный период", ""),
+        "delivery_amount": ("Сумма доставки", 0),
+        "admin_data": ("Адмидат", 0),
+        "gdeslon": ("ГдеСлон", 0),
+        "cityads": ("CityAds", 0),
+        "ozon": ("Ozon", 0),
+        "ozon_fbs": ("Ozon FBS", 0),
+        "yamarket_fbs": ("Яндекс Маркет FBS", 0),
+        "yamarket_dbs": ("Яндекс Маркет DBS", 0),
+        "yandex_direct": ("Яндекс Директ", 0),
+        "price_ru": ("Price ru", 0),
+        "wildberries": ("Wildberries", 0),
+        "gis2": ("2Gis", 0),
+        "seo": ("SEO", 0),
+        "programmatic": ("Программатик", 0),
+        "avito": ("Авито", 0),
+        "multiorders": ("Мультиканальные заказы", 0),
+        "estimated_discount": ("Примерная скидка", 0)
+    }
+    
+    for field, (attr_name, default) in attr_fields.items():
+        if field.endswith("_amount") or field == "estimated_discount":
+            try:
+                values[field] = float(get_attr_value(attributes, attr_name, default))
+            except (ValueError, TypeError):
+                values[field] = 0.0
+        else:
+            values[field] = str(get_attr_value(attributes, attr_name, default))[:255]
+    
+    return values
 
-@app.post("/api/save-to-db", response_model=BatchProcessResponse)
+def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
+    """Подготовка данных отгрузки для вставки в БД"""
+    demand_id = str(demand.get("id", ""))
+    attributes = demand.get("attributes", [])
+    
+    # Обработка накладных расходов (overhead)
+    overhead_data = demand.get("overhead", {})
+    overhead_sum = float(overhead_data.get("sum", 0)) / 100
+    
+    # Получаем себестоимость
+    cost_price = moysklad.get_demand_cost_price(demand_id)
+    
+    # Основные данные
+    values = {
+        "id": demand_id[:255],
+        "number": str(demand.get("name", ""))[:50],
+        "date": demand.get("moment", ""),
+        "counterparty": str(demand.get("agent", {}).get("name", ""))[:255],
+        "store": str(demand.get("store", {}).get("name", ""))[:255],
+        "project": str(demand.get("project", {}).get("name", "Без проекта"))[:255],
+        "sales_channel": str(demand.get("salesChannel", {}).get("name", "Без канала"))[:255],
+        "amount": float(demand.get("sum", 0)) / 100,
+        "cost_price": cost_price,
+        "overhead": overhead_sum,
+        "profit": (float(demand.get("sum", 0)) / 100) - cost_price - overhead_sum,
+        "status": str(demand.get("state", {}).get("name", ""))[:100],
+        "comment": str(demand.get("description", ""))[:255]
+    }
+
+    # Обработка атрибутов
+    attr_fields = {
+        "promo_period": ("Акционный период", ""),
+        "delivery_amount": ("Сумма доставки", 0),
+        "admin_data": ("Адмидат", 0),
+        "gdeslon": ("ГдеСлон", 0),
+        "cityads": ("CityAds", 0),
+        "ozon": ("Ozon", 0),
+        "ozon_fbs": ("Ozon FBS", 0),
+        "yamarket_fbs": ("Яндекс Маркет FBS", 0),
+        "yamarket_dbs": ("Яндекс Маркет DBS", 0),
+        "yandex_direct": ("Яндекс Директ", 0),
+        "price_ru": ("Price ru", 0),
+        "wildberries": ("Wildberries", 0),
+        "gis2": ("2Gis", 0),
+        "seo": ("SEO", 0),
+        "programmatic": ("Программатик", 0),
+        "avito": ("Авито", 0),
+        "multiorders": ("Мультиканальные заказы", 0),
+        "estimated_discount": ("Примерная скидка", 0)
+    }
+
+    for field, (attr_name, default) in attr_fields.items():
+        if field.endswith("_amount") or field == "estimated_discount":
+            try:
+                values[field] = float(get_attr_value(attributes, attr_name, default))
+            except (ValueError, TypeError):
+                values[field] = 0.0
+        else:
+            values[field] = str(get_attr_value(attributes, attr_name, default))[:255]
+    
+    return values
+
+def get_attr_value(attrs, attr_name, default=""):
+    """Безопасное извлечение атрибутов"""
+    if not attrs:
+        return default
+    for attr in attrs:
+        if attr.get("name") == attr_name:
+            value = attr.get("value")
+            if isinstance(value, dict):
+                return value.get("name", str(value))
+            return str(value) if value is not None else default
+    return default
+
+@app.post("/api/save-to-db")
 async def save_to_db(date_range: DateRange, background_tasks: BackgroundTasks):
     """Запуск фоновой задачи для обработки данных"""
     try:
@@ -573,9 +558,10 @@ async def get_task_status(task_id: str):
     })
     return {"task_id": task_id, **status}
 
+# Остальной код (export_excel и init_db) остается без изменений
+
 @app.post("/api/export/excel")
 async def export_excel(date_range: DateRange):
-    """Экспорт данных в Excel файл"""
     conn = None
     try:
         conn = get_db_connection()
@@ -584,7 +570,7 @@ async def export_excel(date_range: DateRange):
         # Создаем новую книгу Excel
         wb = Workbook()
         
-        # Удаляем лист по умолчанию
+        # Удаляем лист по умолчанию, если он есть
         if "Sheet" in wb.sheetnames:
             del wb["Sheet"]
         
@@ -616,7 +602,7 @@ async def export_excel(date_range: DateRange):
         ]
         
         # Применяем стили к листу отгрузок
-        apply_excel_styles(ws_demands, demands_headers, demands_rows, numeric_columns=[6, 7, 8, 9, 11] + list(range(12, 28)), profit_column=9)
+        apply_excel_styles(ws_demands, demands_headers, demands_rows, numeric_columns=[7, 8, 9, 10, 12] + list(range(13, 29)), profit_column=10)
         
         # ===== Второй лист - Отчет по товарам =====
         cur.execute("""
@@ -647,7 +633,7 @@ async def export_excel(date_range: DateRange):
         ]
         
         # Применяем стили к листу товаров
-        apply_excel_styles(ws_items, items_headers, items_rows, numeric_columns=[7, 8, 9, 10, 13, 14, 16] + list(range(17, 32)), profit_column=14)
+        apply_excel_styles(ws_items, items_headers, items_rows, numeric_columns=[8, 9, 10, 11, 14, 15, 17] + list(range(18, 33)), profit_column=15)
         
         # Создаем буфер для сохранения файла
         buffer = io.BytesIO()
@@ -670,7 +656,6 @@ async def export_excel(date_range: DateRange):
 
 @app.post("/api/export/excel/items")
 async def export_excel_items(date_range: DateRange):
-    """Экспорт данных по товарам в Excel файл"""
     conn = None
     try:
         conn = get_db_connection()
@@ -705,7 +690,7 @@ async def export_excel_items(date_range: DateRange):
             "Программатик", "Авито", "Мультиканальные заказы", "Примеренная скидка"
         ]
         
-        # Стили для оформления
+        # Стили для оформления (аналогично export_excel)
         from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
         from openpyxl.utils import get_column_letter
         
@@ -735,8 +720,8 @@ async def export_excel_items(date_range: DateRange):
             ws.column_dimensions[column_letter].width = max(15, len(headers[col-1]) * 1.2)
         
         # Определяем числовые столбцы
-        numeric_columns = [7, 8, 9, 10, 13, 14, 16] + list(range(17, 32))  # 8-11, 14-15, 17-32
-        profit_column = 14  # Столбец с прибылью
+        numeric_columns = [8, 9, 10, 11, 14, 15, 17] + list(range(18, 33))  # 8-11, 14-15, 17-32
+        profit_column = 15  # Столбец с прибылью
         
         # Добавляем данные и форматируем их
         for row_idx, row in enumerate(rows, start=2):
@@ -745,22 +730,49 @@ async def export_excel_items(date_range: DateRange):
                 cell.font = cell_font
                 cell.border = thin_border
                 
-                if col_idx in numeric_columns:
-                    cell.alignment = right_alignment
-                    if isinstance(value, (int, float)):
+                if col_idx in numeric_columns:  # Все числовые столбцы
+                    try:
+                        num_value = float(value) if value not in [None, ''] else 0.0
+                        cell.value = num_value
                         cell.number_format = '#,##0.00'
+                        cell.alignment = right_alignment
                         
-                        # Подсвечиваем отрицательную прибыль
-                        if col_idx == profit_column and value < 0:
+                        if col_idx == profit_column and num_value < 0:
                             cell.fill = negative_fill
+                        elif row_idx % 2 == 0:
+                            cell.fill = money_fill
+                    except (ValueError, TypeError):
+                        cell.alignment = left_alignment
+                elif col_idx == 2:  # Столбец с датой
+                    cell.number_format = 'DD.MM.YYYY'
+                    cell.alignment = center_alignment
                 else:
                     cell.alignment = left_alignment
         
-        # Автофильтр для заголовков
-        ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{1}"
-        
         # Замораживаем заголовки
-        ws.freeze_panes = "A2"
+        ws.freeze_panes = 'A2'
+        
+        # Добавляем автофильтр
+        ws.auto_filter.ref = ws.dimensions
+        
+        # Добавляем итоговую строку
+        last_row = len(rows) + 1
+        ws.append([""] * len(headers))
+        total_row = last_row + 1
+        
+        # Форматируем итоговую строку
+        for col in range(1, len(headers) + 1):
+            cell = ws.cell(row=total_row, column=col)
+            cell.font = Font(bold=True)
+            cell.border = thin_border
+            
+            if col in numeric_columns:
+                start_col = get_column_letter(col)
+                formula = f"SUM({start_col}2:{start_col}{last_row})"
+                cell.value = f"=ROUND({formula}, 2)"
+                cell.number_format = '#,##0.00'
+                cell.alignment = right_alignment
+                cell.fill = PatternFill(start_color='D9D9D9', end_color='D9D9D9', fill_type='solid')
         
         # Создаем буфер для сохранения файла
         buffer = io.BytesIO()
@@ -771,29 +783,29 @@ async def export_excel_items(date_range: DateRange):
         return StreamingResponse(
             buffer,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f"attachment; filename=items_report_{date_range.start_date}_to_{date_range.end_date}.xlsx"}
+            headers={"Content-Disposition": "attachment; filename=report_items.xlsx"}
         )
     
     except Exception as e:
-        logger.error(f"Ошибка при экспорте данных по товарам: {str(e)}")
+        logger.error(f"Ошибка при экспорте данных: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn:
             conn.close()
 
-def apply_excel_styles(worksheet, headers, rows, numeric_columns=None, profit_column=None):
+def apply_excel_styles(worksheet, headers, rows, numeric_columns, profit_column):
     """Применяет стили к листу Excel"""
-    if numeric_columns is None:
-        numeric_columns = []
+    from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+    from openpyxl.utils import get_column_letter
     
-    # Стили для оформления
+    # Стили
     header_font = Font(name='Calibri', bold=True, size=12, color='FFFFFF')
     cell_font = Font(name='Calibri', size=11)
     center_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
     left_alignment = Alignment(horizontal='left', vertical='center')
     right_alignment = Alignment(horizontal='right', vertical='center')
     thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
-                      top=Side(style='thin'), bottom=Side(style='thin'))
+                       top=Side(style='thin'), bottom=Side(style='thin'))
     header_fill = PatternFill(start_color='4F81BD', end_color='4F81BD', fill_type='solid')
     money_fill = PatternFill(start_color='E6E6E6', end_color='E6E6E6', fill_type='solid')
     negative_fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid')
@@ -809,6 +821,7 @@ def apply_excel_styles(worksheet, headers, rows, numeric_columns=None, profit_co
         cell.fill = header_fill
         cell.border = thin_border
         
+        # Автоподбор ширины столбца
         column_letter = get_column_letter(col)
         worksheet.column_dimensions[column_letter].width = max(15, len(headers[col-1]) * 1.2)
     
@@ -819,142 +832,49 @@ def apply_excel_styles(worksheet, headers, rows, numeric_columns=None, profit_co
             cell.font = cell_font
             cell.border = thin_border
             
-            if col_idx in numeric_columns:
-                cell.alignment = right_alignment
-                if isinstance(value, (int, float)):
+            if col_idx in numeric_columns:  # Все числовые столбцы
+                try:
+                    num_value = float(value) if value not in [None, ''] else 0.0
+                    cell.value = num_value
                     cell.number_format = '#,##0.00'
+                    cell.alignment = right_alignment
                     
-                    # Подсвечиваем отрицательную прибыль
-                    if col_idx == profit_column and value < 0:
+                    if col_idx == profit_column and num_value < 0:
                         cell.fill = negative_fill
+                    elif row_idx % 2 == 0:
+                        cell.fill = money_fill
+                except (ValueError, TypeError):
+                    cell.alignment = left_alignment
+            elif col_idx == 2:  # Столбец с датой
+                cell.number_format = 'DD.MM.YYYY'
+                cell.alignment = center_alignment
             else:
                 cell.alignment = left_alignment
     
-    # Автофильтр для заголовков
-    worksheet.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{1}"
-    
     # Замораживаем заголовки
-    worksheet.freeze_panes = "A2"
-
-@app.get("/api/demands")
-async def get_demands(start_date: str, end_date: str, limit: int = 100, offset: int = 0):
-    """Получение списка отгрузок за период"""
-    conn = None
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        
-        # Получаем данные отгрузок
-        cur.execute("""
-            SELECT 
-                id, number, date, counterparty, store, project, sales_channel,
-                amount, cost_price, overhead, profit, status
-            FROM demands
-            WHERE date BETWEEN %s AND %s
-            ORDER BY date DESC
-            LIMIT %s OFFSET %s
-        """, (start_date, end_date, limit, offset))
-        
-        columns = [desc[0] for desc in cur.description]
-        demands = [dict(zip(columns, row)) for row in cur.fetchall()]
-        
-        # Получаем общее количество
-        cur.execute("""
-            SELECT COUNT(*) FROM demands
-            WHERE date BETWEEN %s AND %s
-        """, (start_date, end_date))
-        
-        total = cur.fetchone()[0]
-        
-        return {
-            "data": demands,
-            "total": total,
-            "limit": limit,
-            "offset": offset
-        }
+    worksheet.freeze_panes = 'A2'
     
-    except Exception as e:
-        logger.error(f"Ошибка при получении списка отгрузок: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if conn:
-            conn.close()
-
-@app.get("/api/demand-items/{demand_id}")
-async def get_demand_items(demand_id: str):
-    """Получение позиций конкретной отгрузки"""
-    conn = None
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        
-        cur.execute("""
-            SELECT 
-                product_name, quantity, price, amount, cost_price, 
-                article, code, overhead, profit
-            FROM demand_items
-            WHERE demand_id = %s
-            ORDER BY product_name
-        """, (demand_id,))
-        
-        columns = [desc[0] for desc in cur.description]
-        items = [dict(zip(columns, row)) for row in cur.fetchall()]
-        
-        return {"data": items}
+    # Добавляем автофильтр
+    worksheet.auto_filter.ref = worksheet.dimensions
     
-    except Exception as e:
-        logger.error(f"Ошибка при получении позиций отгрузки: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if conn:
-            conn.close()
-
-@app.get("/api/stats/summary")
-async def get_summary_stats(start_date: str, end_date: str):
-    """Получение сводной статистики за период"""
-    conn = None
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        
-        # Основные метрики
-        cur.execute("""
-            SELECT 
-                COUNT(*) as count,
-                SUM(amount) as total_amount,
-                SUM(cost_price) as total_cost,
-                SUM(overhead) as total_overhead,
-                SUM(profit) as total_profit
-            FROM demands
-            WHERE date BETWEEN %s AND %s
-        """, (start_date, end_date))
-        
-        result = cur.fetchone()
-        stats = {
-            "count": result[0],
-            "total_amount": float(result[1]) if result[1] else 0,
-            "total_cost": float(result[2]) if result[2] else 0,
-            "total_overhead": float(result[3]) if result[3] else 0,
-            "total_profit": float(result[4]) if result[4] else 0
-        }
-        
-        # Маржинальность
-        if stats["total_amount"] > 0:
-            stats["margin"] = round((stats["total_profit"] / stats["total_amount"]) * 100, 2)
-        else:
-            stats["margin"] = 0
-        
-        return stats
+    # Добавляем итоговую строку
+    last_row = len(rows) + 1
+    worksheet.append([""] * len(headers))
+    total_row = last_row + 1
     
-    except Exception as e:
-        logger.error(f"Ошибка при получении сводной статистики: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if conn:
-            conn.close()
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
-
+    # Форматируем итоговую строку
+    for col in range(1, len(headers) + 1):
+        cell = worksheet.cell(row=total_row, column=col)
+        cell.font = Font(bold=True)
+        cell.border = thin_border
+        
+        if col in numeric_columns:
+            start_col = get_column_letter(col)
+            formula = f"SUM({start_col}2:{start_col}{last_row})"
+            cell.value = f"=ROUND({formula}, 2)"
+            cell.number_format = '#,##0.00'
+            cell.alignment = right_alignment
+            cell.fill = PatternFill(start_color='D9D9D9', end_color='D9D9D9', fill_type='solid')
+        elif col == 1:
+            cell.value = "Итого:"
+            cell.alignment = right_alignment
