@@ -666,8 +666,6 @@ async def export_excel(date_range: DateRange):
     finally:
         if conn:
             conn.close()
-        if buffer:
-            buffer.close()
 
 @app.post("/api/export/excel/items")
 async def export_excel_items(date_range: DateRange):
