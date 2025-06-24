@@ -56,109 +56,86 @@ def init_db():
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # Проверяем существование таблицы demands
+        # Создаем таблицу demands, если не существует
         cur.execute("""
-            SELECT EXISTS (
-                SELECT FROM information_schema.tables 
-                WHERE table_name = 'demands'
+            CREATE TABLE IF NOT EXISTS demands (
+                id VARCHAR(255) PRIMARY KEY,
+                number VARCHAR(50),
+                date TIMESTAMP,
+                counterparty VARCHAR(255),
+                store VARCHAR(255),
+                project VARCHAR(255),
+                sales_channel VARCHAR(255),
+                amount NUMERIC(15, 2),
+                cost_price NUMERIC(15, 2),
+                overhead NUMERIC(15, 2),
+                profit NUMERIC(15, 2),
+                promo_period VARCHAR(255),
+                delivery_amount NUMERIC(15, 2),
+                admin_data NUMERIC(15, 2),
+                gdeslon NUMERIC(15, 2),
+                cityads NUMERIC(15, 2),
+                ozon NUMERIC(15, 2),
+                ozon_fbs NUMERIC(15, 2),
+                yamarket_fbs NUMERIC(15, 2),
+                yamarket_dbs NUMERIC(15, 2),
+                yandex_direct NUMERIC(15, 2),
+                price_ru NUMERIC(15, 2),
+                wildberries NUMERIC(15, 2),
+                gis2 NUMERIC(15, 2),
+                seo NUMERIC(15, 2),
+                programmatic NUMERIC(15, 2),
+                avito NUMERIC(15, 2),
+                multiorders NUMERIC(15, 2),
+                estimated_discount NUMERIC(15, 2),
+                status VARCHAR(100),
+                comment VARCHAR(255)
             )
         """)
-        table_exists = cur.fetchone()[0]
         
-        if not table_exists:
-            cur.execute("""
-                CREATE TABLE demands (
-                    id VARCHAR(255) PRIMARY KEY,
-                    number VARCHAR(50),
-                    date TIMESTAMP,
-                    counterparty VARCHAR(255),
-                    store VARCHAR(255),
-                    project VARCHAR(255),
-                    sales_channel VARCHAR(255),
-                    amount NUMERIC(15, 2),
-                    cost_price NUMERIC(15, 2),
-                    overhead NUMERIC(15, 2),
-                    profit NUMERIC(15, 2),
-                    promo_period VARCHAR(255),
-                    delivery_amount NUMERIC(15, 2),
-                    admin_data NUMERIC(15, 2),
-                    gdeslon NUMERIC(15, 2),
-                    cityads NUMERIC(15, 2),
-                    ozon NUMERIC(15, 2),
-                    ozon_fbs NUMERIC(15, 2),
-                    yamarket_fbs NUMERIC(15, 2),
-                    yamarket_dbs NUMERIC(15, 2),
-                    yandex_direct NUMERIC(15, 2),
-                    price_ru NUMERIC(15, 2),
-                    wildberries NUMERIC(15, 2),
-                    gis2 NUMERIC(15, 2),
-                    seo NUMERIC(15, 2),
-                    programmatic NUMERIC(15, 2),
-                    avito NUMERIC(15, 2),
-                    multiorders NUMERIC(15, 2),
-                    estimated_discount NUMERIC(15, 2),
-                    status VARCHAR(100),
-                    comment VARCHAR(255)
-                )
-            """)
-            logger.info("Таблица demands успешно создана")
-        else:
-            logger.info("Таблица demands уже существует")
-        
-        # Проверяем существование таблицы demand_items
+        # Создаем таблицу demand_items, если не существует
         cur.execute("""
-            SELECT EXISTS (
-                SELECT FROM information_schema.tables 
-                WHERE table_name = 'demand_items'
+            CREATE TABLE IF NOT EXISTS demand_items (
+                id VARCHAR(255) PRIMARY KEY,
+                demand_id VARCHAR(255) REFERENCES demands(id),
+                demand_number VARCHAR(50),
+                date TIMESTAMP,
+                counterparty VARCHAR(255),
+                store VARCHAR(255),
+                project VARCHAR(255),
+                sales_channel VARCHAR(255),
+                product_name VARCHAR(255),
+                quantity NUMERIC(15, 3),
+                price NUMERIC(15, 2),
+                amount NUMERIC(15, 2),
+                cost_price NUMERIC(15, 2),
+                article VARCHAR(255),
+                code VARCHAR(255),
+                overhead NUMERIC(15, 2),
+                profit NUMERIC(15, 2),
+                promo_period VARCHAR(255),
+                delivery_amount NUMERIC(15, 2),
+                admin_data NUMERIC(15, 2),
+                gdeslon NUMERIC(15, 2),
+                cityads NUMERIC(15, 2),
+                ozon NUMERIC(15, 2),
+                ozon_fbs NUMERIC(15, 2),
+                yamarket_fbs NUMERIC(15, 2),
+                yamarket_dbs NUMERIC(15, 2),
+                yandex_direct NUMERIC(15, 2),
+                price_ru NUMERIC(15, 2),
+                wildberries NUMERIC(15, 2),
+                gis2 NUMERIC(15, 2),
+                seo NUMERIC(15, 2),
+                programmatic NUMERIC(15, 2),
+                avito NUMERIC(15, 2),
+                multiorders NUMERIC(15, 2),
+                estimated_discount NUMERIC(15, 2)
             )
         """)
-        table_exists = cur.fetchone()[0]
-        
-        if not table_exists:
-            cur.execute("""
-                CREATE TABLE demand_items (
-                    id VARCHAR(255) PRIMARY KEY,
-                    demand_id VARCHAR(255) REFERENCES demands(id),
-                    demand_number VARCHAR(50),
-                    date TIMESTAMP,
-                    counterparty VARCHAR(255),
-                    store VARCHAR(255),
-                    project VARCHAR(255),
-                    sales_channel VARCHAR(255),
-                    product_name VARCHAR(255),
-                    quantity NUMERIC(15, 3),
-                    price NUMERIC(15, 2),
-                    amount NUMERIC(15, 2),
-                    cost_price NUMERIC(15, 2),
-                    article VARCHAR(255),
-                    code VARCHAR(255),
-                    overhead NUMERIC(15, 2),
-                    profit NUMERIC(15, 2),
-                    promo_period VARCHAR(255),
-                    delivery_amount NUMERIC(15, 2),
-                    admin_data NUMERIC(15, 2),
-                    gdeslon NUMERIC(15, 2),
-                    cityads NUMERIC(15, 2),
-                    ozon NUMERIC(15, 2),
-                    ozon_fbs NUMERIC(15, 2),
-                    yamarket_fbs NUMERIC(15, 2),
-                    yamarket_dbs NUMERIC(15, 2),
-                    yandex_direct NUMERIC(15, 2),
-                    price_ru NUMERIC(15, 2),
-                    wildberries NUMERIC(15, 2),
-                    gis2 NUMERIC(15, 2),
-                    seo NUMERIC(15, 2),
-                    programmatic NUMERIC(15, 2),
-                    avito NUMERIC(15, 2),
-                    multiorders NUMERIC(15, 2),
-                    estimated_discount NUMERIC(15, 2)
-                )
-            """)
-            logger.info("Таблица demand_items успешно создана")
-        else:
-            logger.info("Таблица demand_items уже существует")
         
         conn.commit()
+        logger.info("Таблицы успешно созданы или уже существуют")
         
     except Exception as e:
         logger.error(f"Ошибка при инициализации базы данных: {str(e)}")
@@ -589,6 +566,14 @@ async def export_excel(date_range: DateRange):
         conn = get_db_connection()
         cur = conn.cursor()
         
+        # Создаем новую книгу Excel
+        wb = Workbook()
+        
+        # Удаляем лист по умолчанию, если он есть
+        if "Sheet" in wb.sheetnames:
+            del wb["Sheet"]
+        
+        # ===== Первый лист - Отчет по отгрузкам =====
         cur.execute("""
             SELECT 
                 number, date, counterparty, store, project, sales_channel,
@@ -601,14 +586,12 @@ async def export_excel(date_range: DateRange):
             ORDER BY date DESC
         """, (date_range.start_date, date_range.end_date))
         
-        rows = cur.fetchall()
+        demands_rows = cur.fetchall()
         
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Отчет по отгрузкам"
+        ws_demands = wb.create_sheet("Отчет по отгрузкам")
         
         # Заголовки столбцов
-        headers = [
+        demands_headers = [
             "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
             "Сумма", "Себестоимость", "Накладные расходы", "Прибыль", "Акционный период",
             "Сумма доставки", "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS",
@@ -617,129 +600,10 @@ async def export_excel(date_range: DateRange):
             "Примерная скидка"
         ]
         
-        # Стили для оформления
-        from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
-        from openpyxl.utils import get_column_letter
+        # Применяем стили к листу отгрузок
+        apply_excel_styles(ws_demands, demands_headers, demands_rows, numeric_columns=[7, 8, 9, 10, 12] + list(range(13, 29)), profit_column=10)
         
-        # Шрифты
-        header_font = Font(name='Calibri', bold=True, size=12, color='FFFFFF')
-        cell_font = Font(name='Calibri', size=11)
-        
-        # Выравнивание
-        center_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-        left_alignment = Alignment(horizontal='left', vertical='center')
-        right_alignment = Alignment(horizontal='right', vertical='center')
-        
-        # Границы
-        thin_border = Border(left=Side(style='thin'), 
-                          right=Side(style='thin'), 
-                          top=Side(style='thin'), 
-                          bottom=Side(style='thin'))
-        
-        # Заливка
-        header_fill = PatternFill(start_color='4F81BD', end_color='4F81BD', fill_type='solid')
-        money_fill = PatternFill(start_color='E6E6E6', end_color='E6E6E6', fill_type='solid')
-        negative_fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid')  # Красный для отрицательной прибыли
-        
-        # Добавляем заголовки
-        ws.append(headers)
-        
-        # Форматируем заголовки
-        for col in range(1, len(headers) + 1):
-            cell = ws.cell(row=1, column=col)
-            cell.font = header_font
-            cell.alignment = center_alignment
-            cell.fill = header_fill
-            cell.border = thin_border
-            
-            # Автоподбор ширины столбца
-            column_letter = get_column_letter(col)
-            ws.column_dimensions[column_letter].width = max(15, len(headers[col-1]) * 1.2)
-        
-        # Определяем числовые столбцы (нумерация с 1)
-        numeric_columns = [7, 8, 9, 10, 12] + list(range(13, 29))  # 7-12 и 13-28 (включительно)
-        profit_column = 10  # Столбец с прибылью (индекс 10 соответствует 10-му столбцу)
-        
-        # Добавляем данные и форматируем их
-        for row_idx, row in enumerate(rows, start=2):
-            for col_idx, value in enumerate(row, start=1):
-                cell = ws.cell(row=row_idx, column=col_idx, value=value)
-                cell.font = cell_font
-                cell.border = thin_border
-                
-                # Форматирование чисел и дат
-                if col_idx in numeric_columns:  # Все числовые столбцы
-                    try:
-                        # Преобразуем значение в число, если возможно
-                        num_value = float(value) if value not in [None, ''] else 0.0
-                        cell.value = num_value
-                        cell.number_format = '#,##0.00'
-                        cell.alignment = right_alignment
-                        
-                        # Проверяем отрицательную прибыль (только для столбца прибыли)
-                        if col_idx == profit_column and num_value < 0:
-                            cell.fill = negative_fill
-                        elif row_idx % 2 == 0:  # Зебра для читаемости
-                            cell.fill = money_fill
-                    except (ValueError, TypeError):
-                        # Если не удалось преобразовать в число, оставляем как есть
-                        cell.alignment = left_alignment
-                elif col_idx == 2:  # Столбец с датой
-                    cell.number_format = 'DD.MM.YYYY'
-                    cell.alignment = center_alignment
-                else:
-                    cell.alignment = left_alignment
-        
-        # Замораживаем заголовки
-        ws.freeze_panes = 'A2'
-        
-        # Добавляем автофильтр
-        ws.auto_filter.ref = ws.dimensions
-        
-        # Добавляем итоговую строку
-        last_row = len(rows) + 1
-        ws.append([""] * len(headers))
-        total_row = last_row + 1
-        
-        # Форматируем итоговую строку
-        for col in range(1, len(headers) + 1):
-            cell = ws.cell(row=total_row, column=col)
-            cell.font = Font(bold=True)
-            cell.border = thin_border
-            
-            # Суммы для числовых столбцов
-            if col in numeric_columns:
-                start_col = get_column_letter(col)
-                formula = f"SUM({start_col}2:{start_col}{last_row})"
-                cell.value = f"=ROUND({formula}, 2)"
-                cell.number_format = '#,##0.00'
-                cell.alignment = right_alignment
-                cell.fill = PatternFill(start_color='D9D9D9', end_color='D9D9D9', fill_type='solid')
-            elif col == 1:
-                cell.value = "Итого:"
-                cell.alignment = right_alignment
-        
-        buffer = io.BytesIO()
-        wb.save(buffer)
-        buffer.seek(0)
-        
-        return {
-            "file": buffer.read().hex(),
-            "filename": f"Отчет_по_отгрузкам_{date_range.start_date}_по_{date_range.end_date}.xlsx"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if conn:
-            conn.close()
-
-@app.post("/api/export/excel/items")
-async def export_excel_items(date_range: DateRange):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        
+        # ===== Второй лист - Отчет по товарам =====
         cur.execute("""
             SELECT 
                 demand_number, date, counterparty, store, project, sales_channel,
@@ -753,14 +617,12 @@ async def export_excel_items(date_range: DateRange):
             ORDER BY date DESC, demand_number
         """, (date_range.start_date, date_range.end_date))
         
-        rows = cur.fetchall()
+        items_rows = cur.fetchall()
         
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Отчет по товарам"
+        ws_items = wb.create_sheet("Отчет по товарам")
         
         # Заголовки столбцов
-        headers = [
+        items_headers = [
             "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
             "Товар", "Количество", "Цена", "Сумма", "Себестоимость", "Артикул", "Код",
             "Накладные расходы", "Прибыль", "Акционный период", "Сумма доставки",
@@ -769,89 +631,8 @@ async def export_excel_items(date_range: DateRange):
             "Программатик", "Авито", "Мультиканальные заказы", "Примеренная скидка"
         ]
         
-        # Стили для оформления (аналогично export_excel)
-        from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
-        from openpyxl.utils import get_column_letter
-        
-        header_font = Font(name='Calibri', bold=True, size=12, color='FFFFFF')
-        cell_font = Font(name='Calibri', size=11)
-        center_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-        left_alignment = Alignment(horizontal='left', vertical='center')
-        right_alignment = Alignment(horizontal='right', vertical='center')
-        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
-                          top=Side(style='thin'), bottom=Side(style='thin'))
-        header_fill = PatternFill(start_color='4F81BD', end_color='4F81BD', fill_type='solid')
-        money_fill = PatternFill(start_color='E6E6E6', end_color='E6E6E6', fill_type='solid')
-        negative_fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid')
-        
-        # Добавляем заголовки
-        ws.append(headers)
-        
-        # Форматируем заголовки
-        for col in range(1, len(headers) + 1):
-            cell = ws.cell(row=1, column=col)
-            cell.font = header_font
-            cell.alignment = center_alignment
-            cell.fill = header_fill
-            cell.border = thin_border
-            
-            column_letter = get_column_letter(col)
-            ws.column_dimensions[column_letter].width = max(15, len(headers[col-1]) * 1.2)
-        
-        # Определяем числовые столбцы
-        numeric_columns = [8, 9, 10, 11, 14, 15, 17] + list(range(18, 33))  # 8-11, 14-15, 17-32
-        profit_column = 15  # Столбец с прибылью
-        
-        # Добавляем данные и форматируем их
-        for row_idx, row in enumerate(rows, start=2):
-            for col_idx, value in enumerate(row, start=1):
-                cell = ws.cell(row=row_idx, column=col_idx, value=value)
-                cell.font = cell_font
-                cell.border = thin_border
-                
-                if col_idx in numeric_columns:  # Все числовые столбцы
-                    try:
-                        num_value = float(value) if value not in [None, ''] else 0.0
-                        cell.value = num_value
-                        cell.number_format = '#,##0.00'
-                        cell.alignment = right_alignment
-                        
-                        if col_idx == profit_column and num_value < 0:
-                            cell.fill = negative_fill
-                        elif row_idx % 2 == 0:
-                            cell.fill = money_fill
-                    except (ValueError, TypeError):
-                        cell.alignment = left_alignment
-                elif col_idx == 2:  # Столбец с датой
-                    cell.number_format = 'DD.MM.YYYY'
-                    cell.alignment = center_alignment
-                else:
-                    cell.alignment = left_alignment
-        
-        # Замораживаем заголовки
-        ws.freeze_panes = 'A2'
-        
-        # Добавляем автофильтр
-        ws.auto_filter.ref = ws.dimensions
-        
-        # Добавляем итоговую строку
-        last_row = len(rows) + 1
-        ws.append([""] * len(headers))
-        total_row = last_row + 1
-        
-        # Форматируем итоговую строку
-        for col in range(1, len(headers) + 1):
-            cell = ws.cell(row=total_row, column=col)
-            cell.font = Font(bold=True)
-            cell.border = thin_border
-            
-            if col in numeric_columns:
-                start_col = get_column_letter(col)
-                formula = f"SUM({start_col}2:{start_col}{last_row})"
-                cell.value = f"=ROUND({formula}, 2)"
-                cell.number_format = '#,##0.00'
-                cell.alignment = right_alignment
-                cell.fill = PatternFill(start_color='D9D9D9', end_color='D9D9D9', fill_type='solid')
+        # Применяем стили к листу товаров
+        apply_excel_styles(ws_items, items_headers, items_rows, numeric_columns=[8, 9, 10, 11, 14, 15, 17] + list(range(18, 33)), profit_column=15)
         
         # Создаем буфер для сохранения файла
         buffer = io.BytesIO()
@@ -862,7 +643,7 @@ async def export_excel_items(date_range: DateRange):
         return StreamingResponse(
             buffer,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": "attachment; filename=report_items.xlsx"}
+            headers={"Content-Disposition": f"attachment; filename=report_{date_range.start_date}_to_{date_range.end_date}.xlsx"}
         )
     
     except Exception as e:
@@ -871,3 +652,89 @@ async def export_excel_items(date_range: DateRange):
     finally:
         if conn:
             conn.close()
+
+def apply_excel_styles(worksheet, headers, rows, numeric_columns, profit_column):
+    """Применяет стили к листу Excel"""
+    from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+    from openpyxl.utils import get_column_letter
+    
+    # Стили
+    header_font = Font(name='Calibri', bold=True, size=12, color='FFFFFF')
+    cell_font = Font(name='Calibri', size=11)
+    center_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    left_alignment = Alignment(horizontal='left', vertical='center')
+    right_alignment = Alignment(horizontal='right', vertical='center')
+    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
+                       top=Side(style='thin'), bottom=Side(style='thin'))
+    header_fill = PatternFill(start_color='4F81BD', end_color='4F81BD', fill_type='solid')
+    money_fill = PatternFill(start_color='E6E6E6', end_color='E6E6E6', fill_type='solid')
+    negative_fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid')
+    
+    # Добавляем заголовки
+    worksheet.append(headers)
+    
+    # Форматируем заголовки
+    for col in range(1, len(headers) + 1):
+        cell = worksheet.cell(row=1, column=col)
+        cell.font = header_font
+        cell.alignment = center_alignment
+        cell.fill = header_fill
+        cell.border = thin_border
+        
+        # Автоподбор ширины столбца
+        column_letter = get_column_letter(col)
+        worksheet.column_dimensions[column_letter].width = max(15, len(headers[col-1]) * 1.2)
+    
+    # Добавляем данные и форматируем их
+    for row_idx, row in enumerate(rows, start=2):
+        for col_idx, value in enumerate(row, start=1):
+            cell = worksheet.cell(row=row_idx, column=col_idx, value=value)
+            cell.font = cell_font
+            cell.border = thin_border
+            
+            if col_idx in numeric_columns:  # Все числовые столбцы
+                try:
+                    num_value = float(value) if value not in [None, ''] else 0.0
+                    cell.value = num_value
+                    cell.number_format = '#,##0.00'
+                    cell.alignment = right_alignment
+                    
+                    if col_idx == profit_column and num_value < 0:
+                        cell.fill = negative_fill
+                    elif row_idx % 2 == 0:
+                        cell.fill = money_fill
+                except (ValueError, TypeError):
+                    cell.alignment = left_alignment
+            elif col_idx == 2:  # Столбец с датой
+                cell.number_format = 'DD.MM.YYYY'
+                cell.alignment = center_alignment
+            else:
+                cell.alignment = left_alignment
+    
+    # Замораживаем заголовки
+    worksheet.freeze_panes = 'A2'
+    
+    # Добавляем автофильтр
+    worksheet.auto_filter.ref = worksheet.dimensions
+    
+    # Добавляем итоговую строку
+    last_row = len(rows) + 1
+    worksheet.append([""] * len(headers))
+    total_row = last_row + 1
+    
+    # Форматируем итоговую строку
+    for col in range(1, len(headers) + 1):
+        cell = worksheet.cell(row=total_row, column=col)
+        cell.font = Font(bold=True)
+        cell.border = thin_border
+        
+        if col in numeric_columns:
+            start_col = get_column_letter(col)
+            formula = f"SUM({start_col}2:{start_col}{last_row})"
+            cell.value = f"=ROUND({formula}, 2)"
+            cell.number_format = '#,##0.00'
+            cell.alignment = right_alignment
+            cell.fill = PatternFill(start_color='D9D9D9', end_color='D9D9D9', fill_type='solid')
+        elif col == 1:
+            cell.value = "Итого:"
+            cell.alignment = right_alignment
