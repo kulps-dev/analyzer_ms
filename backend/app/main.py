@@ -675,6 +675,7 @@ async def export_excel(date_range: DateRange):
         
         # Читаем содержимое буфера в байты
         file_content = buffer.getvalue()
+        logger.info(f"File size: {len(file_content)} bytes")
         
         # Возвращаем Response вместо StreamingResponse
         return Response(
