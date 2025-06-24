@@ -792,3 +792,88 @@ async def export_excel_items(date_range: DateRange):
         if conn:
             conn.close()
 
+def apply_excel_styles(worksheet, headers, rows, numeric_columns, profit_column):
+    """Применяет стили к листу Excel"""
+    from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+    from openpyxl.utils import get_column_letter
+    
+    # Стили
+    header_font = Font(name='Calibri', bold=True, size=12, color='FFFFFF')
+    cell_font = Font(name='Calibri', size=11)
+    center_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    left_alignment = Alignment(horizontal='left', vertical='center')
+    right_alignment = Alignment(horizontal='right', vertical='center')
+    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
+                       top=Side(style='thin'), bottom=Side(style='thin'))
+    header_fill = PatternFill(start_color='4F81BD', end_color='4F81BD', fill_type='solid')
+    money_fill = PatternFill(start_color='E6E6E6', end_color='E6E6E6', fill_type='solid')
+    negative_fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid')
+    
+    # Добавляем заголовки
+    worksheet.append(headers)
+    
+    # Форматируем заголовки
+    for col in range(1, len(headers) + 1):
+        cell = worksheet.cell(row=1, column=col)
+        cell.font = header_font
+        cell.alignment = center_alignment
+        cell.fill = header_fill
+        cell.border = thin_border
+        
+        # Автоподбор ширины столбца
+        column_letter = get_column_letter(col)
+        worksheet.column_dimensions[column_letter].width = max(15, len(headers[col-1]) * 1.2)
+    
+    # Добавляем данные и форматируем их
+    for row_idx, row in enumerate(rows, start=2):
+        for col_idx, value in enumerate(row, start=1):
+            cell = worksheet.cell(row=row_idx, column=col_idx, value=value)
+            cell.font = cell_font
+            cell.border = thin_border
+            
+            if col_idx in numeric_columns:  # Все числовые столбцы
+                try:
+                    num_value = float(value) if value not in [None, ''] else 0.0
+                    cell.value = num_value
+                    cell.number_format = '#,##0.00'
+                    cell.alignment = right_alignment
+                    
+                    if col_idx == profit_column and num_value < 0:
+                        cell.fill = negative_fill
+                    elif row_idx % 2 == 0:
+                        cell.fill = money_fill
+                except (ValueError, TypeError):
+                    cell.alignment = left_alignment
+            elif col_idx == 2:  # Столбец с датой
+                cell.number_format = 'DD.MM.YYYY'
+                cell.alignment = center_alignment
+            else:
+                cell.alignment = left_alignment
+    
+    # Замораживаем заголовки
+    worksheet.freeze_panes = 'A2'
+    
+    # Добавляем автофильтр
+    worksheet.auto_filter.ref = worksheet.dimensions
+    
+    # Добавляем итоговую строку
+    last_row = len(rows) + 1
+    worksheet.append([""] * len(headers))
+    total_row = last_row + 1
+    
+    # Форматируем итоговую строку
+    for col in range(1, len(headers) + 1):
+        cell = worksheet.cell(row=total_row, column=col)
+        cell.font = Font(bold=True)
+        cell.border = thin_border
+        
+        if col in numeric_columns:
+            start_col = get_column_letter(col)
+            formula = f"SUM({start_col}2:{start_col}{last_row})"
+            cell.value = f"=ROUND({formula}, 2)"
+            cell.number_format = '#,##0.00'
+            cell.alignment = right_alignment
+            cell.fill = PatternFill(start_color='D9D9D9', end_color='D9D9D9', fill_type='solid')
+        elif col == 1:
+            cell.value = "Итого:"
+            cell.alignment = right_alignment
