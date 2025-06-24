@@ -567,106 +567,60 @@ async def export_excel(date_range: DateRange):
     conn = None
     buffer = None
     try:
-        # Извлекаем только дату без времени
-        start_date_part = date_range.start_date.split()[0]
-        end_date_part = date_range.end_date.split()[0]
-        logger.info(f"Starting export for date range: {start_date_part} to {end_date_part}")
+        logger.info(f"Starting export for date range: {date_range.start_date} to {date_range.end_date}")
+        
+        # Convert input dates to proper format
+        start_date = datetime.strptime(date_range.start_date, "%Y-%m-%d %H:%M:%S").strftime("%Y-%m-%d")
+        end_date = datetime.strptime(date_range.end_date, "%Y-%m-%d %H:%M:%S").strftime("%Y-%m-%d")
+        filename = f"report_{start_date}_to_{end_date}.xlsx"
+        filename_encoded = quote(filename)
 
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # Создаем новую книгу Excel
         wb = Workbook()
-        
-        # Удаляем лист по умолчанию, если он есть
         if "Sheet" in wb.sheetnames:
             del wb["Sheet"]
         
-        # ===== Первый лист - Отчет по отгрузкам =====
+        # Process demands sheet
         logger.info("Fetching demands data from database...")
         cur.execute("""
-            SELECT 
-                number, date, counterparty, store, project, sales_channel,
-                amount, cost_price, overhead, profit, promo_period, delivery_amount,
-                admin_data, gdeslon, cityads, ozon, ozon_fbs, yamarket_fbs,
-                yamarket_dbs, yandex_direct, price_ru, wildberries, gis2, seo,
-                programmatic, avito, multiorders, estimated_discount
-            FROM demands
+            SELECT ... FROM demands
             WHERE date BETWEEN %s AND %s
-            ORDER BY date DESC
         """, (date_range.start_date, date_range.end_date))
         
         demands_rows = cur.fetchall()
         logger.info(f"Fetched {len(demands_rows)} demands records")
-        
         ws_demands = wb.create_sheet("Отчет по отгрузкам")
+        apply_excel_styles(ws_demands, demands_headers, demands_rows, ...)
         
-        # Заголовки столбцов
-        demands_headers = [
-            "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
-            "Сумма", "Себестоимость", "Накладные расходы", "Прибыль", "Акционный период",
-            "Сумма доставки", "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS",
-            "Яндекс Маркет FBS", "Яндекс Маркет DBS", "Яндекс Директ", "Price ru",
-            "Wildberries", "2Gis", "SEO", "Программатик", "Авито", "Мультиканальные заказы",
-            "Примерная скидка"
-        ]
-        
-        # Применяем стили к листу отгрузок
-        apply_excel_styles(ws_demands, demands_headers, demands_rows, numeric_columns=[7, 8, 9, 10, 12] + list(range(13, 29)), profit_column=10)
-        
-        # ===== Второй лист - Отчет по товарам =====
+        # Process items sheet
         logger.info("Fetching items data from database...")
         cur.execute("""
-            SELECT 
-                demand_number, date, counterparty, store, project, sales_channel,
-                product_name, quantity, price, amount, cost_price, article, code,
-                overhead, profit, promo_period, delivery_amount,
-                admin_data, gdeslon, cityads, ozon, ozon_fbs, yamarket_fbs,
-                yamarket_dbs, yandex_direct, price_ru, wildberries, gis2, seo,
-                programmatic, avito, multiorders, estimated_discount
-            FROM demand_items
+            SELECT ... FROM demand_items
             WHERE date BETWEEN %s AND %s
-            ORDER BY date DESC, demand_number
         """, (date_range.start_date, date_range.end_date))
         
         items_rows = cur.fetchall()
         logger.info(f"Fetched {len(items_rows)} items records")
-        
         ws_items = wb.create_sheet("Отчет по товарам")
-        
-        # Заголовки столбцов
-        items_headers = [
-            "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
-            "Товар", "Количество", "Цена", "Сумма", "Себестоимость", "Артикул", "Код",
-            "Накладные расходы", "Прибыль", "Акционный период", "Сумма доставки",
-            "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS", "Яндекс Маркет FBS",
-            "Яндекс Маркет DBS", "Яндекс Директ", "Price ru", "Wildberries", "2Gis", "SEO",
-            "Программатик", "Авито", "Мультиканальные заказы", "Примеренная скидка"
-        ]
-        
-        # Применяем стили к листу товаров
-        apply_excel_styles(ws_items, items_headers, items_rows, numeric_columns=[8, 9, 10, 11, 14, 15, 17] + list(range(18, 33)), profit_column=15)
-        
-        # Создаем буфер для сохранения файла
+        apply_excel_styles(ws_items, items_headers, items_rows, ...)
+
         buffer = io.BytesIO()
         wb.save(buffer)
         buffer.seek(0)
         
-        filename = f"report_{start_date_part} {end_date_part}.xlsx"
-        logger.info(f"Excel file prepared successfully: {filename}")
-        
-        # Возвращаем файл как ответ БЕЗ URI-кодирования
         return StreamingResponse(
             buffer,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={
-                "Content-Disposition": f"attachment; filename={filename}",
+                "Content-Disposition": f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename_encoded}',
                 "Access-Control-Expose-Headers": "Content-Disposition"
             }
         )
     
     except Exception as e:
-        logger.error(f"Error during export: {str(e)}", exc_info=True)
+        logger.error(f"Export error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn:
