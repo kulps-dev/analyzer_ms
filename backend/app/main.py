@@ -14,6 +14,8 @@ import asyncio
 from typing import List, Dict, Any
 import logging
 import uuid
+from urllib.parse import quote
+
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO)
@@ -647,15 +649,14 @@ async def export_excel(date_range: DateRange):
         wb.save(buffer)
         buffer.seek(0)
         
-        filename = f"report_.xlsx"
-        logger.info(f"Excel file prepared successfully: {filename}")
-        
-        # Возвращаем файл как ответ
+        filename = f"report_{date_range.start_date.split()[0]}_to_{date_range.end_date.split()[0]}.xlsx"
+        filename_encoded = quote(filename)
+
         return StreamingResponse(
             buffer,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={
-                "Content-Disposition": f"attachment; filename={filename}",
+                "Content-Disposition": f"attachment; filename={filename_encoded}",
                 "Access-Control-Expose-Headers": "Content-Disposition"
             }
         )
