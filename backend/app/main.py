@@ -650,13 +650,16 @@ async def export_excel(date_range: DateRange):
         buffer.seek(0)
         
         filename = f"report_{date_range.start_date.split()[0]}_to_{date_range.end_date.split()[0]}.xlsx"
-        filename_encoded = quote(filename)
+        filename_encoded = quote(filename)  # Кодируем для HTTP-заголовка
 
+        logger.info(f"Excel file prepared successfully: {filename}")
+        
+        # Возвращаем файл как ответ
         return StreamingResponse(
             buffer,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={
-                "Content-Disposition": f"attachment; filename={filename_encoded}",
+                "Content-Disposition": f"attachment; filename*=UTF-8''{filename_encoded}",
                 "Access-Control-Expose-Headers": "Content-Disposition"
             }
         )
