@@ -43,10 +43,12 @@ class DateRange(BaseModel):
     @validator('start_date', 'end_date')
     def validate_date_format(cls, v):
         try:
-            # Пробуем распарсить дату с временем или без
-            if ' ' in v or 'T' in v:
-                datetime.strptime(v.split(' ')[0].split('T')[0], "%Y-%m-%d")
-            else:
+            # Пробуем распарсить дату в разных форматах
+            if ' ' in v:  # Если есть время (формат "YYYY-MM-DD HH:MM:SS")
+                datetime.strptime(v, "%Y-%m-%d %H:%M:%S")
+            elif 'T' in v:  # Если ISO формат с "T"
+                datetime.fromisoformat(v.replace("Z", "+00:00"))
+            else:  # Просто дата
                 datetime.strptime(v, "%Y-%m-%d")
             return v
         except ValueError:
@@ -577,14 +579,19 @@ async def get_task_status(task_id: str):
 async def export_excel(date_range: DateRange):
     conn = None
     try:
-        # Проверяем и форматируем даты для имени файла
+        # Преобразуем даты к нужному формату
         try:
-            start_date = datetime.strptime(date_range.start_date, "%Y-%m-%d").strftime("%Y-%m-%d")
-            end_date = datetime.strptime(date_range.end_date, "%Y-%m-%d").strftime("%Y-%m-%d")
+            # Обрабатываем дату с временем или без
+            start_date_str = date_range.start_date.split(' ')[0]  # Берем только часть с датой
+            end_date_str = date_range.end_date.split(' ')[0]
+            
+            start_date = datetime.strptime(start_date_str, "%Y-%m-%d").strftime("%Y-%m-%d")
+            end_date = datetime.strptime(end_date_str, "%Y-%m-%d").strftime("%Y-%m-%d")
+            
             filename = f"report_{start_date}_to_{end_date}.xlsx"
         except ValueError as e:
             logger.error(f"Неверный формат даты: {str(e)}")
-            raise HTTPException(status_code=400, detail="Неверный формат даты. Используйте YYYY-MM-DD")
+            raise HTTPException(status_code=400, detail="Неверный формат даты. Используйте YYYY-MM-DD или YYYY-MM-DD HH:MM:SS")
 
         conn = get_db_connection()
         cur = conn.cursor()
