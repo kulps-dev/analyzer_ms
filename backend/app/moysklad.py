@@ -88,7 +88,7 @@ class MoyskladAPI:
         return all_data
 
     def get_demands(self, start_date: str, end_date: str) -> List[Dict[str, Any]]:
-        """Получить отгрузки за период с пагинацией"""
+        """Получить отгрузки за период с пагинацией и позициями"""
         url = f"{self.base_url}/entity/demand"
         
         start_date = start_date.split(' ')[0].split('T')[0]
@@ -98,7 +98,7 @@ class MoyskladAPI:
         
         params = {
             "filter": filter_str,
-            "expand": "agent,store,project,salesChannel",  # Используем expand для получения данных сразу
+            "expand": "agent,store,project,salesChannel",
             "limit": 1000
         }
         
@@ -113,6 +113,13 @@ class MoyskladAPI:
             for i in range(0, len(demands), batch_size):
                 batch = demands[i:i + batch_size]
                 self._enrich_demand_data_batch(batch)
+                
+                # Получаем позиции для каждой отгрузки в пакете
+                for demand in batch:
+                    demand_id = demand.get("id")
+                    if demand_id:
+                        demand["positions"] = self.get_demand_positions(demand_id)
+                
                 logger.info(f"Обогащено {min(i + batch_size, len(demands))}/{len(demands)} отгрузок")
                 time.sleep(1)  # Пауза между пакетами
             
@@ -121,6 +128,80 @@ class MoyskladAPI:
         except Exception as e:
             logger.error(f"Ошибка при получении отгрузок: {str(e)}")
             raise
+
+    def get_demand_positions(self, demand_id: str) -> List[Dict[str, Any]]:
+        """Получить позиции отгрузки с обогащенными данными о товарах"""
+        url = f"{self.base_url}/entity/demand/{demand_id}/positions"
+        
+        try:
+            positions = self.get_paginated_data(url)
+            logger.info(f"Получено {len(positions)} позиций для отгрузки {demand_id}")
+            
+            # Обогащаем данные о товарах
+            for position in positions:
+                if "assortment" in position:
+                    product_url = position["assortment"]["meta"]["href"]
+                    try:
+                        response = self._make_request("GET", product_url)
+                        product_data = response.json()
+                        position["product_name"] = product_data.get("name", "")
+                        position["article"] = product_data.get("article", "")
+                        position["code"] = product_data.get("code", "")
+                    except Exception as e:
+                        logger.warning(f"Ошибка при получении данных товара: {str(e)}")
+                        position["product_name"] = ""
+                        position["article"] = ""
+                        position["code"] = ""
+            
+            return positions
+        
+        except Exception as e:
+            logger.error(f"Ошибка при получении позиций отгрузки {demand_id}: {str(e)}")
+            raise
+
+    def get_position_cost_price(self, position: Dict[str, Any]) -> float:
+        """Получить себестоимость позиции"""
+        try:
+            # Если в позиции есть информация о себестоимости
+            if "cost" in position:
+                return float(position.get("cost", 0)) / 100
+            
+            # Если нет, делаем запрос к API
+            if "assortment" in position:
+                product_url = position["assortment"]["meta"]["href"]
+                response = self._make_request("GET", product_url)
+                product_data = response.json()
+                return float(product_data.get("costPrice", {}).get("value", 0)) / 100
+            
+            return 0
+        except Exception as e:
+            logger.error(f"Ошибка при получении себестоимости позиции: {str(e)}")
+            return 0
+
+    def get_demand_cost_price(self, demand_id: str) -> float:
+        """Получить себестоимость отгрузки (сумма себестоимостей позиций)"""
+        url = f"{self.base_url}/report/stock/byoperation"
+        params = {
+            "operation.id": demand_id,
+            "limit": 1000
+        }
+        
+        try:
+            response = self._make_request("GET", url, params=params)
+            data = response.json()
+            
+            total_cost = 0
+            if "rows" in data and len(data["rows"]) > 0:
+                for position in data["rows"][0].get("positions", []):
+                    cost = position.get("cost", 0)
+                    quantity = position.get("quantity", 1)
+                    total_cost += cost * quantity
+            
+            return total_cost / 100  # Переводим в рубли
+        
+        except Exception as e:
+            logger.error(f"Ошибка при получении себестоимости для отгрузки {demand_id}: {str(e)}")
+            return 0
 
     def _enrich_demand_data_batch(self, demands: List[Dict[str, Any]]):
         """Пакетное обогащение данных отгрузок"""
@@ -176,28 +257,3 @@ class MoyskladAPI:
 
         except Exception as e:
             logger.error(f"Ошибка при пакетном обогащении данных: {str(e)}")
-
-    def get_demand_cost_price(self, demand_id: str) -> float:
-        """Получить себестоимость отгрузки"""
-        url = f"{self.base_url}/report/stock/byoperation"
-        params = {
-            "operation.id": demand_id,
-            "limit": 1000
-        }
-        
-        try:
-            response = self._make_request("GET", url, params=params)
-            data = response.json()
-            
-            total_cost = 0
-            if "rows" in data and len(data["rows"]) > 0:
-                for position in data["rows"][0].get("positions", []):
-                    cost = position.get("cost", 0)
-                    quantity = position.get("quantity", 1)
-                    total_cost += cost
-            
-            return total_cost / 100  # Переводим в рубли
-        
-        except Exception as e:
-            logger.error(f"Ошибка при получении себестоимости для отгрузки {demand_id}: {str(e)}")
-            return 0
