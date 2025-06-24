@@ -576,7 +576,6 @@ async def export_excel(date_range: DateRange):
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # Остальной код остается без изменений...
         wb = Workbook()
         
         if "Sheet" in wb.sheetnames:
