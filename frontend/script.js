@@ -18,6 +18,8 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             showStatus('Загрузка данных...', 'loading');
             
+            console.log('1. Отправляем запрос...');
+            
             const response = await fetch('/api/export/excel', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -27,28 +29,54 @@ document.addEventListener('DOMContentLoaded', function() {
                 })
             });
 
+            console.log('2. Получен ответ:', response);
+            console.log('   Status:', response.status);
+            console.log('   Headers:', Object.fromEntries(response.headers.entries()));
+
             if (!response.ok) {
                 const errorText = await response.text();
                 throw new Error(errorText || 'Ошибка при загрузке файла');
             }
 
-            // ВАЖНО: НЕ используем response.json(), используем response.blob()
+            console.log('3. Получаем blob...');
             const blob = await response.blob();
-            
-            // Создаем ссылку для скачивания
+            console.log('4. Blob получен:', blob);
+            console.log('   Size:', blob.size);
+            console.log('   Type:', blob.type);
+
+            if (blob.size === 0) {
+                throw new Error('Получен пустой файл');
+            }
+
+            console.log('5. Создаем ссылку для скачивания...');
             const url = window.URL.createObjectURL(blob);
+            console.log('6. URL создан:', url);
+
             const a = document.createElement('a');
             a.href = url;
             a.download = `report_${startDate}_to_${endDate}.xlsx`;
+            a.style.display = 'none';
+            
+            console.log('7. Добавляем ссылку в DOM и кликаем...');
             document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
+            
+            // Используем setTimeout для гарантии, что элемент добавлен в DOM
+            setTimeout(() => {
+                a.click();
+                console.log('8. Клик выполнен');
+                
+                // Очищаем через некоторое время
+                setTimeout(() => {
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                    console.log('9. Очистка выполнена');
+                }, 100);
+            }, 0);
             
             showStatus('Данные успешно загружены', 'success');
             showAlert('Excel файл успешно сформирован', 'success');
         } catch (error) {
-            console.error('Ошибка:', error);
+            console.error('ОШИБКА:', error);
             showStatus('Ошибка при загрузке данных', 'error');
             showAlert(error.message || 'Произошла ошибка при загрузке файла', 'error');
         }
@@ -56,8 +84,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function showStatus(message, type) {
         const statusBar = document.getElementById('status-bar');
-        statusBar.innerHTML = `<i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'times-circle' : 'spinner fa-spin'}"></i> ${message}`;
-        statusBar.className = `status-bar show ${type}`;
+        if (statusBar) {
+            statusBar.innerHTML = `<i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'times-circle' : 'spinner fa-spin'}"></i> ${message}`;
+            statusBar.className = `status-bar show ${type}`;
+        }
     }
 
     function showAlert(message, type) {
