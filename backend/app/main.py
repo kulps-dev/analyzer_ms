@@ -448,6 +448,7 @@ async def export_excel(date_range: DateRange):
         # Заливка
         header_fill = PatternFill(start_color='4F81BD', end_color='4F81BD', fill_type='solid')
         money_fill = PatternFill(start_color='E6E6E6', end_color='E6E6E6', fill_type='solid')
+        negative_fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid')  # Красный для отрицательной прибыли
         
         # Добавляем заголовки
         ws.append(headers)
@@ -466,6 +467,7 @@ async def export_excel(date_range: DateRange):
         
         # Определяем числовые столбцы (нумерация с 1)
         numeric_columns = [7, 8, 9, 10, 12] + list(range(13, 29))  # 7-12 и 13-28 (включительно)
+        profit_column = 10  # Столбец с прибылью (индекс 10 соответствует 10-му столбцу)
         
         # Добавляем данные и форматируем их
         for row_idx, row in enumerate(rows, start=2):
@@ -482,7 +484,11 @@ async def export_excel(date_range: DateRange):
                         cell.value = num_value
                         cell.number_format = '#,##0.00'
                         cell.alignment = right_alignment
-                        if row_idx % 2 == 0:  # Зебра для читаемости
+                        
+                        # Проверяем отрицательную прибыль (только для столбца прибыли)
+                        if col_idx == profit_column and num_value < 0:
+                            cell.fill = negative_fill
+                        elif row_idx % 2 == 0:  # Зебра для читаемости
                             cell.fill = money_fill
                     except (ValueError, TypeError):
                         # Если не удалось преобразовать в число, оставляем как есть
