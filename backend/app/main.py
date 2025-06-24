@@ -647,7 +647,7 @@ async def export_excel(date_range: DateRange):
         wb.save(buffer)
         buffer.seek(0)
         
-        filename = f"report_{date_range.start_date}_to_{date_range.end_date}.xlsx"
+        filename = f"report_.xlsx"
         logger.info(f"Excel file prepared successfully: {filename}")
         
         # Возвращаем файл как ответ
