@@ -398,6 +398,7 @@ async def export_excel(date_range: DateRange):
         conn = get_db_connection()
         cur = conn.cursor()
         
+        # Получаем данные для листа "Отчет по отгрузкам"
         cur.execute("""
             SELECT 
                 number, date, counterparty, store, project, sales_channel,
@@ -410,14 +411,66 @@ async def export_excel(date_range: DateRange):
             ORDER BY date DESC
         """, (date_range.start_date, date_range.end_date))
         
-        rows = cur.fetchall()
+        demands_rows = cur.fetchall()
+        
+        # Получаем данные для листа "Отчет по товарам"
+        cur.execute("""
+            SELECT 
+                d.number, d.date, d.counterparty, d.store, d.project, d.sales_channel,
+                p.name AS product_name, p.quantity, p.price / 100 AS price, 
+                p.price / 100 * p.quantity AS sum, 
+                p.cost_price / 100 AS cost_price,
+                p.article, p.code,
+                d.overhead / (SELECT COUNT(*) FROM demand_positions WHERE demand_id = d.id) AS overhead_per_product,
+                (p.price / 100 * p.quantity) - (p.cost_price / 100 * p.quantity) - 
+                (d.overhead / (SELECT COUNT(*) FROM demand_positions WHERE demand_id = d.id)) AS profit_per_product,
+                d.promo_period, 
+                d.delivery_amount / (SELECT COUNT(*) FROM demand_positions WHERE demand_id = d.id) AS delivery_per_product,
+                d.admin_data / (SELECT COUNT(*) FROM demand_positions WHERE demand_id = d.id) AS admin_data_per_product,
+                d.gdeslon / (SELECT COUNT(*) FROM demand_positions WHERE demand_id = d.id) AS gdeslon_per_product,
+                d.cityads / (SELECT COUNT(*) FROM demand_positions WHERE demand_id = d.id) AS cityads_per_product,
+                d.ozon / (SELECT COUNT(*) FROM demand_positions WHERE demand_id = d.id) AS ozon_per_product,
+                d.ozon_fbs / (SELECT COUNT(*) FROM demand_positions WHERE demand_id = d.id) AS ozon_fbs_per_product,
+                d.yamarket_fbs / (SELECT COUNT(*) FROM demand_positions WHERE demand_id = d.id) AS yamarket_fbs_per_product,
+                d.yamarket_dbs / (SELECT COUNT(*) FROM demand_positions WHERE demand_id = d.id) AS yamarket_dbs_per_product,
+                d.yandex_direct / (SELECT COUNT(*) FROM demand_positions WHERE demand_id = d.id) AS yandex_direct_per_product,
+                d.price_ru / (SELECT COUNT(*) FROM demand_positions WHERE demand_id = d.id) AS price_ru_per_product,
+                d.wildberries / (SELECT COUNT(*) FROM demand_positions WHERE demand_id = d.id) AS wildberries_per_product,
+                d.gis2 / (SELECT COUNT(*) FROM demand_positions WHERE demand_id = d.id) AS gis2_per_product,
+                d.seo / (SELECT COUNT(*) FROM demand_positions WHERE demand_id = d.id) AS seo_per_product,
+                d.programmatic / (SELECT COUNT(*) FROM demand_positions WHERE demand_id = d.id) AS programmatic_per_product,
+                d.avito / (SELECT COUNT(*) FROM demand_positions WHERE demand_id = d.id) AS avito_per_product,
+                d.multiorders / (SELECT COUNT(*) FROM demand_positions WHERE demand_id = d.id) AS multiorders_per_product,
+                d.estimated_discount / (SELECT COUNT(*) FROM demand_positions WHERE demand_id = d.id) AS estimated_discount_per_product
+            FROM demands d
+            JOIN demand_positions p ON d.id = p.demand_id
+            WHERE d.date BETWEEN %s AND %s
+            ORDER BY d.date DESC, d.number
+        """, (date_range.start_date, date_range.end_date))
+        
+        products_rows = cur.fetchall()
         
         wb = Workbook()
-        ws = wb.active
-        ws.title = "Отчет по отгрузкам"
         
-        # Заголовки столбцов
-        headers = [
+        # Стили для оформления (как в оригинальном коде)
+        from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+        from openpyxl.utils import get_column_letter
+        
+        header_font = Font(name='Calibri', bold=True, size=12, color='FFFFFF')
+        cell_font = Font(name='Calibri', size=11)
+        center_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        left_alignment = Alignment(horizontal='left', vertical='center')
+        right_alignment = Alignment(horizontal='right', vertical='center')
+        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
+                           top=Side(style='thin'), bottom=Side(style='thin'))
+        header_fill = PatternFill(start_color='4F81BD', end_color='4F81BD', fill_type='solid')
+        money_fill = PatternFill(start_color='E6E6E6', end_color='E6E6E6', fill_type='solid')
+        negative_fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid')
+        
+        # Лист "Отчет по отгрузкам" (как в оригинальном коде)
+        ws_demands = wb.active
+        ws_demands.title = "Отчет по отгрузкам"
+        demands_headers = [
             "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
             "Сумма", "Себестоимость", "Накладные расходы", "Прибыль", "Акционный период",
             "Сумма доставки", "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS",
@@ -425,73 +478,115 @@ async def export_excel(date_range: DateRange):
             "Wildberries", "2Gis", "SEO", "Программатик", "Авито", "Мультиканальные заказы",
             "Примерная скидка"
         ]
+        ws_demands.append(demands_headers)
         
-        # Стили для оформления
-        from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
-        from openpyxl.utils import get_column_letter
-        
-        # Шрифты
-        header_font = Font(name='Calibri', bold=True, size=12, color='FFFFFF')
-        cell_font = Font(name='Calibri', size=11)
-        
-        # Выравнивание
-        center_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-        left_alignment = Alignment(horizontal='left', vertical='center')
-        right_alignment = Alignment(horizontal='right', vertical='center')
-        
-        # Границы
-        thin_border = Border(left=Side(style='thin'), 
-                          right=Side(style='thin'), 
-                          top=Side(style='thin'), 
-                          bottom=Side(style='thin'))
-        
-        # Заливка
-        header_fill = PatternFill(start_color='4F81BD', end_color='4F81BD', fill_type='solid')
-        money_fill = PatternFill(start_color='E6E6E6', end_color='E6E6E6', fill_type='solid')
-        negative_fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid')  # Красный для отрицательной прибыли
-        
-        # Добавляем заголовки
-        ws.append(headers)
-        
-        # Форматируем заголовки
-        for col in range(1, len(headers) + 1):
-            cell = ws.cell(row=1, column=col)
+        # Форматирование листа "Отчет по отгрузкам" (как в оригинальном коде)
+        for col in range(1, len(demands_headers) + 1):
+            cell = ws_demands.cell(row=1, column=col)
             cell.font = header_font
             cell.alignment = center_alignment
             cell.fill = header_fill
             cell.border = thin_border
-            
-            # Автоподбор ширины столбца
-            column_letter = get_column_letter(col)
-            ws.column_dimensions[column_letter].width = max(15, len(headers[col-1]) * 1.2)
+            ws_demands.column_dimensions[get_column_letter(col)].width = max(15, len(demands_headers[col-1]) * 1.2)
         
-        # Определяем числовые столбцы (нумерация с 1)
-        numeric_columns = [7, 8, 9, 10, 12] + list(range(13, 29))  # 7-12 и 13-28 (включительно)
-        profit_column = 10  # Столбец с прибылью (индекс 10 соответствует 10-му столбцу)
+        numeric_columns = [7, 8, 9, 10, 12] + list(range(13, 29))
+        profit_column = 10
         
-        # Добавляем данные и форматируем их
-        for row_idx, row in enumerate(rows, start=2):
+        for row_idx, row in enumerate(demands_rows, start=2):
             for col_idx, value in enumerate(row, start=1):
-                cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                cell = ws_demands.cell(row=row_idx, column=col_idx, value=value)
                 cell.font = cell_font
                 cell.border = thin_border
                 
-                # Форматирование чисел и дат
-                if col_idx in numeric_columns:  # Все числовые столбцы
+                if col_idx in numeric_columns:
                     try:
-                        # Преобразуем значение в число, если возможно
                         num_value = float(value) if value not in [None, ''] else 0.0
                         cell.value = num_value
                         cell.number_format = '#,##0.00'
                         cell.alignment = right_alignment
                         
-                        # Проверяем отрицательную прибыль (только для столбца прибыли)
                         if col_idx == profit_column and num_value < 0:
                             cell.fill = negative_fill
-                        elif row_idx % 2 == 0:  # Зебра для читаемости
+                        elif row_idx % 2 == 0:
                             cell.fill = money_fill
                     except (ValueError, TypeError):
-                        # Если не удалось преобразовать в число, оставляем как есть
+                        cell.alignment = left_alignment
+                elif col_idx == 2:
+                    cell.number_format = 'DD.MM.YYYY'
+                    cell.alignment = center_alignment
+                else:
+                    cell.alignment = left_alignment
+        
+        ws_demands.freeze_panes = 'A2'
+        ws_demands.auto_filter.ref = ws_demands.dimensions
+        
+        # Добавляем итоговую строку для листа "Отчет по отгрузкам"
+        last_row = len(demands_rows) + 1
+        ws_demands.append([""] * len(demands_headers))
+        total_row = last_row + 1
+        
+        for col in range(1, len(demands_headers) + 1):
+            cell = ws_demands.cell(row=total_row, column=col)
+            cell.font = Font(bold=True)
+            cell.border = thin_border
+            
+            if col in numeric_columns:
+                start_col = get_column_letter(col)
+                formula = f"SUM({start_col}2:{start_col}{last_row})"
+                cell.value = f"=ROUND({formula}, 2)"
+                cell.number_format = '#,##0.00'
+                cell.alignment = right_alignment
+                cell.fill = PatternFill(start_color='D9D9D9', end_color='D9D9D9', fill_type='solid')
+            elif col == 1:
+                cell.value = "Итого:"
+                cell.alignment = right_alignment
+        
+        # Лист "Отчет по товарам"
+        ws_products = wb.create_sheet(title="Отчет по товарам")
+        
+        products_headers = [
+            "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
+            "Товар", "Количество", "Цена", "Сумма", "Себестоимость", "Артикул", "Код",
+            "Накладные расходы", "Прибыль", "Акционный период", "Сумма доставки",
+            "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS", "Яндекс Маркет FBS",
+            "Яндекс Маркет DBS", "Яндекс Директ", "Price ru", "Wildberries", "2Gis",
+            "SEO", "Программатик", "Авито", "Мультиканальные заказы", "Примерная скидка"
+        ]
+        
+        ws_products.append(products_headers)
+        
+        # Форматирование заголовков листа "Отчет по товарам"
+        for col in range(1, len(products_headers) + 1):
+            cell = ws_products.cell(row=1, column=col)
+            cell.font = header_font
+            cell.alignment = center_alignment
+            cell.fill = header_fill
+            cell.border = thin_border
+            ws_products.column_dimensions[get_column_letter(col)].width = max(15, len(products_headers[col-1]) * 1.2)
+        
+        # Определяем числовые столбцы для листа "Отчет по товарам"
+        products_numeric_columns = [8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+        products_profit_column = 15
+        
+        # Добавляем данные в лист "Отчет по товарам"
+        for row_idx, row in enumerate(products_rows, start=2):
+            for col_idx, value in enumerate(row, start=1):
+                cell = ws_products.cell(row=row_idx, column=col_idx, value=value)
+                cell.font = cell_font
+                cell.border = thin_border
+                
+                if col_idx in products_numeric_columns:
+                    try:
+                        num_value = float(value) if value not in [None, ''] else 0.0
+                        cell.value = num_value
+                        cell.number_format = '#,##0.00'
+                        cell.alignment = right_alignment
+                        
+                        if col_idx == products_profit_column and num_value < 0:
+                            cell.fill = negative_fill
+                        elif row_idx % 2 == 0:
+                            cell.fill = money_fill
+                    except (ValueError, TypeError):
                         cell.alignment = left_alignment
                 elif col_idx == 2:  # Столбец с датой
                     cell.number_format = 'DD.MM.YYYY'
@@ -499,27 +594,22 @@ async def export_excel(date_range: DateRange):
                 else:
                     cell.alignment = left_alignment
         
-        # Замораживаем заголовки
-        ws.freeze_panes = 'A2'
+        ws_products.freeze_panes = 'A2'
+        ws_products.auto_filter.ref = ws_products.dimensions
         
-        # Добавляем автофильтр
-        ws.auto_filter.ref = ws.dimensions
+        # Добавляем итоговую строку для листа "Отчет по товарам"
+        products_last_row = len(products_rows) + 1
+        ws_products.append([""] * len(products_headers))
+        products_total_row = products_last_row + 1
         
-        # Добавляем итоговую строку
-        last_row = len(rows) + 1
-        ws.append([""] * len(headers))
-        total_row = last_row + 1
-        
-        # Форматируем итоговую строку
-        for col in range(1, len(headers) + 1):
-            cell = ws.cell(row=total_row, column=col)
+        for col in range(1, len(products_headers) + 1):
+            cell = ws_products.cell(row=products_total_row, column=col)
             cell.font = Font(bold=True)
             cell.border = thin_border
             
-            # Суммы для числовых столбцов
-            if col in numeric_columns:
+            if col in products_numeric_columns:
                 start_col = get_column_letter(col)
-                formula = f"SUM({start_col}2:{start_col}{last_row})"
+                formula = f"SUM({start_col}2:{start_col}{products_last_row})"
                 cell.value = f"=ROUND({formula}, 2)"
                 cell.number_format = '#,##0.00'
                 cell.alignment = right_alignment
