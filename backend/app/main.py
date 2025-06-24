@@ -1,6 +1,6 @@
 from fastapi.responses import StreamingResponse
 import time 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import psycopg2
@@ -17,11 +17,22 @@ import uuid
 from urllib.parse import quote
 
 
+
 # Настройка логгера
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
+
+# Настройка CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # В продакшене замените на конкретные домены
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["Content-Disposition", "Content-Type", "Content-Length"]
+)
 
 # Настройки базы данных
 DB_CONFIG = {
@@ -565,19 +576,16 @@ async def get_task_status(task_id: str):
 @app.post("/api/export/excel")
 async def export_excel(date_range: DateRange):
     conn = None
-    buffer = None
     try:
         logger.info(f"Starting export for date range: {date_range.start_date} to {date_range.end_date}")
         
-        # Упрощенное имя файла без дат
-        filename = "sales_report.xlsx"
-        filename_encoded = quote(filename)
-
         conn = get_db_connection()
         cur = conn.cursor()
         
+        # Создаем новую книгу Excel
         wb = Workbook()
         
+        # Удаляем лист по умолчанию, если он есть
         if "Sheet" in wb.sheetnames:
             del wb["Sheet"]
         
@@ -600,6 +608,7 @@ async def export_excel(date_range: DateRange):
         
         ws_demands = wb.create_sheet("Отчет по отгрузкам")
         
+        # Заголовки столбцов
         demands_headers = [
             "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
             "Сумма", "Себестоимость", "Накладные расходы", "Прибыль", "Акционный период",
@@ -609,7 +618,10 @@ async def export_excel(date_range: DateRange):
             "Примерная скидка"
         ]
         
-        apply_excel_styles(ws_demands, demands_headers, demands_rows, numeric_columns=[7, 8, 9, 10, 12] + list(range(13, 29)), profit_column=10)
+        # Применяем стили к листу отгрузок
+        apply_excel_styles(ws_demands, demands_headers, demands_rows, 
+                          numeric_columns=[7, 8, 9, 10, 12] + list(range(13, 29)), 
+                          profit_column=10)
         
         # ===== Второй лист - Отчет по товарам =====
         logger.info("Fetching items data from database...")
@@ -631,32 +643,49 @@ async def export_excel(date_range: DateRange):
         
         ws_items = wb.create_sheet("Отчет по товарам")
         
+        # Заголовки столбцов
         items_headers = [
             "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
             "Товар", "Количество", "Цена", "Сумма", "Себестоимость", "Артикул", "Код",
             "Накладные расходы", "Прибыль", "Акционный период", "Сумма доставки",
             "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS", "Яндекс Маркет FBS",
             "Яндекс Маркет DBS", "Яндекс Директ", "Price ru", "Wildberries", "2Gis", "SEO",
-            "Программатик", "Авито", "Мультиканальные заказы", "Примеренная скидка"
+            "Программатик", "Авито", "Мультиканальные заказы", "Примерная скидка"
         ]
         
-        apply_excel_styles(ws_items, items_headers, items_rows, numeric_columns=[8, 9, 10, 11, 14, 15, 17] + list(range(18, 33)), profit_column=15)
+        # Применяем стили к листу товаров
+        apply_excel_styles(ws_items, items_headers, items_rows, 
+                          numeric_columns=[8, 9, 10, 11, 14, 15, 17] + list(range(18, 33)), 
+                          profit_column=15)
         
+        # Создаем буфер для сохранения файла
         buffer = io.BytesIO()
         wb.save(buffer)
         buffer.seek(0)
         
-        return StreamingResponse(
-            buffer,
+        # Формируем имя файла
+        start_date = date_range.start_date.split()[0]
+        end_date = date_range.end_date.split()[0]
+        filename = f"report_{start_date}_to_{end_date}.xlsx"
+        
+        logger.info(f"Excel file prepared successfully: {filename}")
+        
+        # Читаем содержимое буфера в байты
+        file_content = buffer.getvalue()
+        
+        # Возвращаем Response вместо StreamingResponse
+        return Response(
+            content=file_content,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={
-                "Content-Disposition": f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename_encoded}',
-                "Access-Control-Expose-Headers": "Content-Disposition"
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "Content-Length": str(len(file_content))
             }
         )
     
     except Exception as e:
-        logger.error(f"Export error: {str(e)}", exc_info=True)
+        logger.error(f"Error during export: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn:
