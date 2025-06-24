@@ -13,6 +13,7 @@ import asyncio
 from typing import List, Dict, Any
 import logging
 import uuid
+import StreamingResponse
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO)
