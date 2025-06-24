@@ -293,7 +293,7 @@ def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
         "programmatic": ("Программатик", 0),
         "avito": ("Авито", 0),
         "multiorders": ("Мультиканальные заказы", 0),
-        "estimated_discount": ("Примеренная скидка", 0)
+        "estimated_discount": ("Примерная скидка", 0)
     }
 
     for field, (attr_name, default) in attr_fields.items():
@@ -423,7 +423,7 @@ async def export_excel(date_range: DateRange):
             "Сумма доставки", "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS",
             "Яндекс Маркет FBS", "Яндекс Маркет DBS", "Яндекс Директ", "Price ru",
             "Wildberries", "2Gis", "SEO", "Программатик", "Авито", "Мультиканальные заказы",
-            "Примеренная скидка"
+            "Примерная скидка"
         ]
         
         # Стили для оформления
