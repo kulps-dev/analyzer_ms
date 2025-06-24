@@ -22,50 +22,27 @@ document.addEventListener('DOMContentLoaded', function() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    start_date: startDate + " 00:00:00",
-                    end_date: endDate + " 23:59:59"
+                    start_date: startDate + " 00:00:00",  // Добавляем время
+                    end_date: endDate + " 23:59:59"       // Добавляем время
                 })
             });
 
             if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(errorText || 'Ошибка при загрузке файла');
+                throw new Error(await response.text());
             }
 
-            // Получаем blob напрямую из ответа
-            const blob = await response.blob();
-            
-            // Получаем имя файла из заголовков, если есть
-            const contentDisposition = response.headers.get('Content-Disposition');
-            let filename = `report_${startDate}_to_${endDate}.xlsx`;
-            
-            if (contentDisposition) {
-                const filenameMatch = contentDisposition.match(/filename="?(.+)"?/i);
-                if (filenameMatch && filenameMatch[1]) {
-                    filename = filenameMatch[1];
-                }
-            }
-            
-            // Создаем ссылку для скачивания
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
+            const result = await response.json();
+            downloadExcel(result.file, result.filename);
             
             showStatus('Данные успешно загружены', 'success');
             showAlert('Excel файл успешно сформирован', 'success');
         } catch (error) {
             console.error('Ошибка:', error);
             showStatus('Ошибка при загрузке данных', 'error');
-            showAlert(error.message || 'Произошла ошибка при загрузке файла', 'error');
+            showAlert(error.message, 'error');
         }
     });
-
-    // Обработчик кнопки "Сохранить в БД"
+    // Добавьте обработчик для новой кнопки
     document.getElementById('save-to-db-btn').addEventListener('click', async function() {
         const startDate = document.getElementById('start-date').value;
         const endDate = document.getElementById('end-date').value;
@@ -76,7 +53,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         try {
-            showStatus('Запуск обработки данных...', 'loading');
+            showStatus('Сохранение данных в БД...', 'loading');
             
             const response = await fetch('/api/save-to-db', {
                 method: 'POST',
@@ -88,51 +65,31 @@ document.addEventListener('DOMContentLoaded', function() {
             });
 
             if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(errorText || 'Ошибка при сохранении данных');
+                throw new Error(await response.text());
             }
 
             const result = await response.json();
-            
-            if (result.task_id) {
-                // Начинаем проверку статуса задачи
-                showStatus('Обработка данных запущена...', 'loading');
-                checkTaskStatus(result.task_id);
-            } else {
-                showStatus('Данные успешно сохранены', 'success');
-                showAlert(result.message, 'success');
-            }
+            showStatus('Данные успешно сохранены', 'success');
+            showAlert(result.message, 'success');
         } catch (error) {
             console.error('Ошибка:', error);
             showStatus('Ошибка при сохранении данных', 'error');
-            showAlert(error.message || 'Произошла ошибка', 'error');
+            showAlert(error.message, 'error');
         }
     });
 
-    // Функция для проверки статуса задачи
-    async function checkTaskStatus(taskId) {
-        const intervalId = setInterval(async () => {
-            try {
-                const response = await fetch(`/api/task-status/${taskId}`);
-                const status = await response.json();
-                
-                if (status.status === 'completed') {
-                    clearInterval(intervalId);
-                    showStatus('Данные успешно сохранены', 'success');
-                    showAlert(status.message, 'success');
-                } else if (status.status === 'failed') {
-                    clearInterval(intervalId);
-                    showStatus('Ошибка при обработке данных', 'error');
-                    showAlert(status.message, 'error');
-                } else if (status.status === 'processing' || status.status === 'fetching') {
-                    showStatus(`${status.message} (${status.progress})`, 'loading');
-                }
-            } catch (error) {
-                clearInterval(intervalId);
-                showStatus('Ошибка при проверке статуса', 'error');
-                showAlert('Не удалось проверить статус задачи', 'error');
-            }
-        }, 2000); // Проверяем каждые 2 секунды
+    function downloadExcel(hexData, filename) {
+        const bytes = new Uint8Array(hexData.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+        const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     }
 
     function showStatus(message, type) {
