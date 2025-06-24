@@ -128,7 +128,7 @@ async def process_demands_batch(demands: List[Dict[str, Any]], task_id: str):
         conn = get_db_connection()
         cur = conn.cursor()
         
-        batch_size = 500  # Уменьшаем размер пакета
+        batch_size = 50  # Уменьшаем размер пакета
         saved_count = 0
         total_count = len(demands)
         
