@@ -1,7 +1,6 @@
 import time 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import psycopg2
 from psycopg2.extras import execute_batch
@@ -14,8 +13,6 @@ import asyncio
 from typing import List, Dict, Any
 import logging
 import uuid
-from pydantic import validator, Field
-import re
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO)
@@ -38,37 +35,8 @@ DB_CONFIG = {
 moysklad = MoyskladAPI(token="2e61e26f0613cf33fab5f31cf105302aa2d607c3")
 
 class DateRange(BaseModel):
-    start_date: str = Field(..., example="2023-01-01")
-    end_date: str = Field(..., example="2023-12-31")
-
-    @validator('start_date', 'end_date')
-    def validate_date_format(cls, v):
-        try:
-            # Проверяем разные форматы дат
-            if 'T' in v:  # ISO формат с временем
-                datetime.fromisoformat(v.replace("Z", "+00:00"))
-            elif ' ' in v:  # Дата и время
-                datetime.strptime(v, "%Y-%m-%d %H:%M:%S")
-            else:  # Только дата
-                datetime.strptime(v, "%Y-%m-%d")
-            return v
-        except ValueError as e:
-            raise ValueError(f"Неверный формат даты: {v}. Используйте YYYY-MM-DD, YYYY-MM-DD HH:MM:SS или ISO формат. Ошибка: {str(e)}")
-
-def normalize_date(date_str: str) -> str:
-    """Нормализует дату к формату YYYY-MM-DD"""
-    try:
-        if 'T' in date_str:  # ISO формат
-            dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-            return dt.strftime("%Y-%m-%d")
-        elif ' ' in date_str:  # Дата и время
-            dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
-            return dt.strftime("%Y-%m-%d")
-        else:  # Уже в правильном формате
-            datetime.strptime(date_str, "%Y-%m-%d")  # Проверка формата
-            return date_str
-    except ValueError:
-        raise ValueError(f"Неверный формат даты: {date_str}")
+    start_date: str
+    end_date: str
 
 class BatchProcessResponse(BaseModel):
     task_id: str
@@ -595,13 +563,6 @@ async def get_task_status(task_id: str):
 async def export_excel(date_range: DateRange):
     conn = None
     try:
-        # Нормализуем даты
-        start_date = normalize_date(date_range.start_date)
-        end_date = normalize_date(date_range.end_date)
-        
-        # Создаем имя файла
-        filename = f"report_{start_date}_to_{end_date}.xlsx"
-
         conn = get_db_connection()
         cur = conn.cursor()
         
@@ -640,7 +601,7 @@ async def export_excel(date_range: DateRange):
         ]
         
         # Применяем стили к листу отгрузок
-        apply_excel_styles(ws_demands, demands_headers, demands_rows, numeric_columns=[6, 7, 8, 9, 11] + list(range(12, 28)), profit_column=9)
+        apply_excel_styles(ws_demands, demands_headers, demands_rows, numeric_columns=[7, 8, 9, 10, 12] + list(range(13, 29)), profit_column=10)
         
         # ===== Второй лист - Отчет по товарам =====
         cur.execute("""
@@ -667,11 +628,11 @@ async def export_excel(date_range: DateRange):
             "Накладные расходы", "Прибыль", "Акционный период", "Сумма доставки",
             "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS", "Яндекс Маркет FBS",
             "Яндекс Маркет DBS", "Яндекс Директ", "Price ru", "Wildberries", "2Gis", "SEO",
-            "Программатик", "Авито", "Мультиканальные заказы", "Примерная скидка"
+            "Программатик", "Авито", "Мультиканальные заказы", "Примеренная скидка"
         ]
         
         # Применяем стили к листу товаров
-        apply_excel_styles(ws_items, items_headers, items_rows, numeric_columns=[7, 8, 9, 10, 13, 14, 16] + list(range(17, 32)), profit_column=14)
+        apply_excel_styles(ws_items, items_headers, items_rows, numeric_columns=[8, 9, 10, 11, 14, 15, 17] + list(range(18, 33)), profit_column=15)
         
         # Создаем буфер для сохранения файла
         buffer = io.BytesIO()
@@ -682,7 +643,7 @@ async def export_excel(date_range: DateRange):
         return StreamingResponse(
             buffer,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
+            headers={"Content-Disposition": f"attachment; filename=report_{date_range.start_date}_to_{date_range.end_date}.xlsx"}
         )
     
     except Exception as e:
@@ -696,15 +657,6 @@ async def export_excel(date_range: DateRange):
 async def export_excel_items(date_range: DateRange):
     conn = None
     try:
-        # Проверяем и форматируем даты для имени файла
-        try:
-            start_date = datetime.strptime(date_range.start_date, "%Y-%m-%d").strftime("%Y-%m-%d")
-            end_date = datetime.strptime(date_range.end_date, "%Y-%m-%d").strftime("%Y-%m-%d")
-            filename = f"report_items_{start_date}_to_{end_date}.xlsx"
-        except ValueError as e:
-            logger.error(f"Неверный формат даты: {str(e)}")
-            raise HTTPException(status_code=400, detail="Неверный формат даты. Используйте YYYY-MM-DD")
-
         conn = get_db_connection()
         cur = conn.cursor()
         
@@ -737,8 +689,89 @@ async def export_excel_items(date_range: DateRange):
             "Программатик", "Авито", "Мультиканальные заказы", "Примеренная скидка"
         ]
         
-        # Применяем стили
-        apply_excel_styles(ws, headers, rows, numeric_columns=[8, 9, 10, 11, 14, 15, 17] + list(range(18, 33)), profit_column=15)
+        # Стили для оформления (аналогично export_excel)
+        from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+        from openpyxl.utils import get_column_letter
+        
+        header_font = Font(name='Calibri', bold=True, size=12, color='FFFFFF')
+        cell_font = Font(name='Calibri', size=11)
+        center_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        left_alignment = Alignment(horizontal='left', vertical='center')
+        right_alignment = Alignment(horizontal='right', vertical='center')
+        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
+                          top=Side(style='thin'), bottom=Side(style='thin'))
+        header_fill = PatternFill(start_color='4F81BD', end_color='4F81BD', fill_type='solid')
+        money_fill = PatternFill(start_color='E6E6E6', end_color='E6E6E6', fill_type='solid')
+        negative_fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid')
+        
+        # Добавляем заголовки
+        ws.append(headers)
+        
+        # Форматируем заголовки
+        for col in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col)
+            cell.font = header_font
+            cell.alignment = center_alignment
+            cell.fill = header_fill
+            cell.border = thin_border
+            
+            column_letter = get_column_letter(col)
+            ws.column_dimensions[column_letter].width = max(15, len(headers[col-1]) * 1.2)
+        
+        # Определяем числовые столбцы
+        numeric_columns = [8, 9, 10, 11, 14, 15, 17] + list(range(18, 33))  # 8-11, 14-15, 17-32
+        profit_column = 15  # Столбец с прибылью
+        
+        # Добавляем данные и форматируем их
+        for row_idx, row in enumerate(rows, start=2):
+            for col_idx, value in enumerate(row, start=1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                cell.font = cell_font
+                cell.border = thin_border
+                
+                if col_idx in numeric_columns:  # Все числовые столбцы
+                    try:
+                        num_value = float(value) if value not in [None, ''] else 0.0
+                        cell.value = num_value
+                        cell.number_format = '#,##0.00'
+                        cell.alignment = right_alignment
+                        
+                        if col_idx == profit_column and num_value < 0:
+                            cell.fill = negative_fill
+                        elif row_idx % 2 == 0:
+                            cell.fill = money_fill
+                    except (ValueError, TypeError):
+                        cell.alignment = left_alignment
+                elif col_idx == 2:  # Столбец с датой
+                    cell.number_format = 'DD.MM.YYYY'
+                    cell.alignment = center_alignment
+                else:
+                    cell.alignment = left_alignment
+        
+        # Замораживаем заголовки
+        ws.freeze_panes = 'A2'
+        
+        # Добавляем автофильтр
+        ws.auto_filter.ref = ws.dimensions
+        
+        # Добавляем итоговую строку
+        last_row = len(rows) + 1
+        ws.append([""] * len(headers))
+        total_row = last_row + 1
+        
+        # Форматируем итоговую строку
+        for col in range(1, len(headers) + 1):
+            cell = ws.cell(row=total_row, column=col)
+            cell.font = Font(bold=True)
+            cell.border = thin_border
+            
+            if col in numeric_columns:
+                start_col = get_column_letter(col)
+                formula = f"SUM({start_col}2:{start_col}{last_row})"
+                cell.value = f"=ROUND({formula}, 2)"
+                cell.number_format = '#,##0.00'
+                cell.alignment = right_alignment
+                cell.fill = PatternFill(start_color='D9D9D9', end_color='D9D9D9', fill_type='solid')
         
         # Создаем буфер для сохранения файла
         buffer = io.BytesIO()
@@ -749,7 +782,7 @@ async def export_excel_items(date_range: DateRange):
         return StreamingResponse(
             buffer,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
+            headers={"Content-Disposition": "attachment; filename=report_items.xlsx"}
         )
     
     except Exception as e:
@@ -759,88 +792,3 @@ async def export_excel_items(date_range: DateRange):
         if conn:
             conn.close()
 
-def apply_excel_styles(worksheet, headers, rows, numeric_columns, profit_column):
-    """Применяет стили к листу Excel"""
-    from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
-    from openpyxl.utils import get_column_letter
-    
-    # Стили
-    header_font = Font(name='Calibri', bold=True, size=12, color='FFFFFF')
-    cell_font = Font(name='Calibri', size=11)
-    center_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-    left_alignment = Alignment(horizontal='left', vertical='center')
-    right_alignment = Alignment(horizontal='right', vertical='center')
-    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
-                       top=Side(style='thin'), bottom=Side(style='thin'))
-    header_fill = PatternFill(start_color='4F81BD', end_color='4F81BD', fill_type='solid')
-    money_fill = PatternFill(start_color='E6E6E6', end_color='E6E6E6', fill_type='solid')
-    negative_fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid')
-    
-    # Добавляем заголовки
-    worksheet.append(headers)
-    
-    # Форматируем заголовки
-    for col in range(1, len(headers) + 1):
-        cell = worksheet.cell(row=1, column=col)
-        cell.font = header_font
-        cell.alignment = center_alignment
-        cell.fill = header_fill
-        cell.border = thin_border
-        
-        # Автоподбор ширины столбца
-        column_letter = get_column_letter(col)
-        worksheet.column_dimensions[column_letter].width = max(15, len(headers[col-1]) * 1.2)
-    
-    # Добавляем данные и форматируем их
-    for row_idx, row in enumerate(rows, start=2):
-        for col_idx, value in enumerate(row, start=1):
-            cell = worksheet.cell(row=row_idx, column=col_idx, value=value)
-            cell.font = cell_font
-            cell.border = thin_border
-            
-            if col_idx in numeric_columns:  # Все числовые столбцы
-                try:
-                    num_value = float(value) if value not in [None, ''] else 0.0
-                    cell.value = num_value
-                    cell.number_format = '#,##0.00'
-                    cell.alignment = right_alignment
-                    
-                    if col_idx == profit_column and num_value < 0:
-                        cell.fill = negative_fill
-                    elif row_idx % 2 == 0:
-                        cell.fill = money_fill
-                except (ValueError, TypeError):
-                    cell.alignment = left_alignment
-            elif col_idx == 2:  # Столбец с датой
-                cell.number_format = 'DD.MM.YYYY'
-                cell.alignment = center_alignment
-            else:
-                cell.alignment = left_alignment
-    
-    # Замораживаем заголовки
-    worksheet.freeze_panes = 'A2'
-    
-    # Добавляем автофильтр
-    worksheet.auto_filter.ref = worksheet.dimensions
-    
-    # Добавляем итоговую строку
-    last_row = len(rows) + 1
-    worksheet.append([""] * len(headers))
-    total_row = last_row + 1
-    
-    # Форматируем итоговую строку
-    for col in range(1, len(headers) + 1):
-        cell = worksheet.cell(row=total_row, column=col)
-        cell.font = Font(bold=True)
-        cell.border = thin_border
-        
-        if col in numeric_columns:
-            start_col = get_column_letter(col)
-            formula = f"SUM({start_col}2:{start_col}{last_row})"
-            cell.value = f"=ROUND({formula}, 2)"
-            cell.number_format = '#,##0.00'
-            cell.alignment = right_alignment
-            cell.fill = PatternFill(start_color='D9D9D9', end_color='D9D9D9', fill_type='solid')
-        elif col == 1:
-            cell.value = "Итого:"
-            cell.alignment = right_alignment
