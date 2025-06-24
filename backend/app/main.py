@@ -661,26 +661,34 @@ async def export_excel(date_range: DateRange):
                           numeric_columns=[8, 9, 10, 11, 14, 15, 17] + list(range(18, 33)), 
                           profit_column=15)
         
-        # Создаем временный файл
-        with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.xlsx') as tmp:
-            wb.save(tmp)
-            temp_file = tmp.name
+        # Создаем буфер для сохранения файла
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
         
+        # Формируем имя файла
+        start_date = date_range.start_date.split()[0]
+        end_date = date_range.end_date.split()[0]
         filename = f"report_{start_date}_to_{end_date}.xlsx"
         
-        return FileResponse(
-            path=temp_file,
+        logger.info(f"Excel file prepared successfully: {filename}")
+        
+        # Читаем содержимое буфера в байты
+        file_content = buffer.getvalue()
+        
+        # Возвращаем Response вместо StreamingResponse
+        return Response(
+            content=file_content,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            filename=filename,
             headers={
-                "Content-Disposition": f'attachment; filename="{filename}"'
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "Content-Length": str(len(file_content))
             }
         )
     
     except Exception as e:
         logger.error(f"Error during export: {str(e)}", exc_info=True)
-        if temp_file and os.path.exists(temp_file):
-            os.unlink(temp_file)
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn:
