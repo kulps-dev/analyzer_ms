@@ -32,11 +32,11 @@ app.add_middleware(
 
 # Настройки базы данных
 DB_CONFIG = {
-    "host": "87.228.99.200",
-    "port": 5432,
-    "dbname": "MS",
-    "user": "louella",
-    "password": "XBcMJoEO1ljb",
+    "host": os.getenv("DB_HOST", "db"),  # Используем имя сервиса из docker-compose
+    "port": os.getenv("DB_PORT", 5432),
+    "dbname": os.getenv("DB_NAME", "MS"),
+    "user": os.getenv("DB_USER", "louella"),
+    "password": os.getenv("DB_PASSWORD", "XBcMJoEO1ljb"),
     "sslmode": "verify-ca",
     "sslrootcert": "/root/.postgresql/root.crt"
 }
