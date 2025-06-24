@@ -563,7 +563,10 @@ async def get_task_status(task_id: str):
 @app.post("/api/export/excel")
 async def export_excel(date_range: DateRange):
     conn = None
+    buffer = None
     try:
+        logger.info(f"Starting export for date range: {date_range.start_date} to {date_range.end_date}")
+        
         conn = get_db_connection()
         cur = conn.cursor()
         
@@ -575,6 +578,7 @@ async def export_excel(date_range: DateRange):
             del wb["Sheet"]
         
         # ===== Первый лист - Отчет по отгрузкам =====
+        logger.info("Fetching demands data from database...")
         cur.execute("""
             SELECT 
                 number, date, counterparty, store, project, sales_channel,
@@ -588,6 +592,7 @@ async def export_excel(date_range: DateRange):
         """, (date_range.start_date, date_range.end_date))
         
         demands_rows = cur.fetchall()
+        logger.info(f"Fetched {len(demands_rows)} demands records")
         
         ws_demands = wb.create_sheet("Отчет по отгрузкам")
         
@@ -605,6 +610,7 @@ async def export_excel(date_range: DateRange):
         apply_excel_styles(ws_demands, demands_headers, demands_rows, numeric_columns=[7, 8, 9, 10, 12] + list(range(13, 29)), profit_column=10)
         
         # ===== Второй лист - Отчет по товарам =====
+        logger.info("Fetching items data from database...")
         cur.execute("""
             SELECT 
                 demand_number, date, counterparty, store, project, sales_channel,
@@ -619,6 +625,7 @@ async def export_excel(date_range: DateRange):
         """, (date_range.start_date, date_range.end_date))
         
         items_rows = cur.fetchall()
+        logger.info(f"Fetched {len(items_rows)} items records")
         
         ws_items = wb.create_sheet("Отчет по товарам")
         
@@ -640,19 +647,27 @@ async def export_excel(date_range: DateRange):
         wb.save(buffer)
         buffer.seek(0)
         
+        filename = f"report_{date_range.start_date}_to_{date_range.end_date}.xlsx"
+        logger.info(f"Excel file prepared successfully: {filename}")
+        
         # Возвращаем файл как ответ
         return StreamingResponse(
             buffer,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f"attachment; filename=report_{date_range.start_date}_to_{date_range.end_date}.xlsx"}
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}",
+                "Access-Control-Expose-Headers": "Content-Disposition"
+            }
         )
     
     except Exception as e:
-        logger.error(f"Ошибка при экспорте данных: {str(e)}")
+        logger.error(f"Error during export: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn:
             conn.close()
+        if buffer:
+            buffer.close()
 
 @app.post("/api/export/excel/items")
 async def export_excel_items(date_range: DateRange):
