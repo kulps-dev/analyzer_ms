@@ -578,34 +578,79 @@ async def export_excel(date_range: DateRange):
         conn = get_db_connection()
         cur = conn.cursor()
         
+        # Создаем новую книгу Excel
         wb = Workbook()
+        
+        # Удаляем лист по умолчанию, если он есть
         if "Sheet" in wb.sheetnames:
             del wb["Sheet"]
         
-        # Process demands sheet
+        # ===== Первый лист - Отчет по отгрузкам =====
         logger.info("Fetching demands data from database...")
         cur.execute("""
-            SELECT ... FROM demands
+            SELECT 
+                number, date, counterparty, store, project, sales_channel,
+                amount, cost_price, overhead, profit, promo_period, delivery_amount,
+                admin_data, gdeslon, cityads, ozon, ozon_fbs, yamarket_fbs,
+                yamarket_dbs, yandex_direct, price_ru, wildberries, gis2, seo,
+                programmatic, avito, multiorders, estimated_discount
+            FROM demands
             WHERE date BETWEEN %s AND %s
+            ORDER BY date DESC
         """, (date_range.start_date, date_range.end_date))
         
         demands_rows = cur.fetchall()
         logger.info(f"Fetched {len(demands_rows)} demands records")
-        ws_demands = wb.create_sheet("Отчет по отгрузкам")
-        apply_excel_styles(ws_demands, demands_headers, demands_rows, ...)
         
-        # Process items sheet
+        ws_demands = wb.create_sheet("Отчет по отгрузкам")
+        
+        # Заголовки столбцов
+        demands_headers = [
+            "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
+            "Сумма", "Себестоимость", "Накладные расходы", "Прибыль", "Акционный период",
+            "Сумма доставки", "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS",
+            "Яндекс Маркет FBS", "Яндекс Маркет DBS", "Яндекс Директ", "Price ru",
+            "Wildberries", "2Gis", "SEO", "Программатик", "Авито", "Мультиканальные заказы",
+            "Примерная скидка"
+        ]
+        
+        # Применяем стили к листу отгрузок
+        apply_excel_styles(ws_demands, demands_headers, demands_rows, numeric_columns=[7, 8, 9, 10, 12] + list(range(13, 29)), profit_column=10)
+        
+        # ===== Второй лист - Отчет по товарам =====
         logger.info("Fetching items data from database...")
         cur.execute("""
-            SELECT ... FROM demand_items
+            SELECT 
+                demand_number, date, counterparty, store, project, sales_channel,
+                product_name, quantity, price, amount, cost_price, article, code,
+                overhead, profit, promo_period, delivery_amount,
+                admin_data, gdeslon, cityads, ozon, ozon_fbs, yamarket_fbs,
+                yamarket_dbs, yandex_direct, price_ru, wildberries, gis2, seo,
+                programmatic, avito, multiorders, estimated_discount
+            FROM demand_items
             WHERE date BETWEEN %s AND %s
+            ORDER BY date DESC, demand_number
         """, (date_range.start_date, date_range.end_date))
         
         items_rows = cur.fetchall()
         logger.info(f"Fetched {len(items_rows)} items records")
+        
         ws_items = wb.create_sheet("Отчет по товарам")
-        apply_excel_styles(ws_items, items_headers, items_rows, ...)
-
+        
+        # Заголовки столбцов
+        items_headers = [
+            "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
+            "Товар", "Количество", "Цена", "Сумма", "Себестоимость", "Артикул", "Код",
+            "Накладные расходы", "Прибыль", "Акционный период", "Сумма доставки",
+            "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS", "Яндекс Маркет FBS",
+            "Яндекс Маркет DBS", "Яндекс Директ", "Price ru", "Wildberries", "2Gis", "SEO",
+            "Программатик", "Авито", "Мультиканальные заказы", "Примеренная скидка"
+        ]
+        
+        # Применяем стили к листу товаров
+        apply_excel_styles(ws_items, items_headers, items_rows, numeric_columns=[8, 9, 10, 11, 14, 15, 17] + list(range(18, 33)), profit_column=15)
+        
+        # Создаем буфер для сохранения файла
         buffer = io.BytesIO()
         wb.save(buffer)
         buffer.seek(0)
