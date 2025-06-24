@@ -80,7 +80,7 @@ def init_db():
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # Проверяем существование таблицы demands
+        # Создаем таблицу demands (исправленный запрос)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS demands (
                 id VARCHAR(255) PRIMARY KEY,
@@ -114,9 +114,10 @@ def init_db():
                 estimated_discount NUMERIC(15, 2),
                 status VARCHAR(100),
                 comment VARCHAR(255)
+            )
         """)
         
-        # Создаем таблицу для товарных позиций
+        # Создаем таблицу demand_positions (исправленный запрос)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS demand_positions (
                 id VARCHAR(255) PRIMARY KEY,
@@ -137,12 +138,14 @@ def init_db():
             )
         """)
         
-        # Создаем индексы
+        # Создаем индексы (исправленные запросы)
         cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_demand_positions_demand_id ON demand_positions(demand_id)
+            CREATE INDEX IF NOT EXISTS idx_demand_positions_demand_id 
+            ON demand_positions(demand_id)
         """)
         cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_demand_positions_assortment_id ON demand_positions(assortment_id)
+            CREATE INDEX IF NOT EXISTS idx_demand_positions_assortment_id 
+            ON demand_positions(assortment_id)
         """)
         
         conn.commit()
@@ -152,6 +155,7 @@ def init_db():
         logger.error(f"Ошибка при инициализации базы данных: {str(e)}")
         if conn:
             conn.rollback()
+        raise  # Важно пробросить исключение дальше, чтобы приложение не стартовало с нерабочей БД
     finally:
         if conn:
             conn.close()
