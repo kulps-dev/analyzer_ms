@@ -14,6 +14,8 @@ import asyncio
 from typing import List, Dict, Any
 import logging
 import uuid
+from datetime import datetime
+from pydantic import validator
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO)
