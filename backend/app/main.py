@@ -567,8 +567,11 @@ async def export_excel(date_range: DateRange):
     conn = None
     buffer = None
     try:
-        logger.info(f"Starting export for date range: {date_range.start_date} to {date_range.end_date}")
-        
+        # Извлекаем только дату без времени
+        start_date_part = date_range.start_date.split()[0]
+        end_date_part = date_range.end_date.split()[0]
+        logger.info(f"Starting export for date range: {start_date_part} to {end_date_part}")
+
         conn = get_db_connection()
         cur = conn.cursor()
         
@@ -649,17 +652,15 @@ async def export_excel(date_range: DateRange):
         wb.save(buffer)
         buffer.seek(0)
         
-        filename = f"report_{date_range.start_date.split()[0]}_to_{date_range.end_date.split()[0]}.xlsx"
-        filename_encoded = quote(filename)  # Кодируем для HTTP-заголовка
-
+        filename = f"report_{start_date_part}_to_{end_date_part}.xlsx"
         logger.info(f"Excel file prepared successfully: {filename}")
         
-        # Возвращаем файл как ответ
+        # Возвращаем файл как ответ БЕЗ URI-кодирования
         return StreamingResponse(
             buffer,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={
-                "Content-Disposition": f"attachment; filename*=UTF-8''{filename_encoded}",
+                "Content-Disposition": f"attachment; filename={filename}",
                 "Access-Control-Expose-Headers": "Content-Disposition"
             }
         )
