@@ -569,19 +569,16 @@ async def export_excel(date_range: DateRange):
     try:
         logger.info(f"Starting export for date range: {date_range.start_date} to {date_range.end_date}")
         
-        # Convert input dates to proper format
-        start_date = datetime.strptime(date_range.start_date, "%Y-%m-%d %H:%M:%S").strftime("%Y-%m-%d")
-        end_date = datetime.strptime(date_range.end_date, "%Y-%m-%d %H:%M:%S").strftime("%Y-%m-%d")
-        filename = f"report_{start_date}_to_{end_date}.xlsx"
+        # Упрощенное имя файла без дат
+        filename = "sales_report.xlsx"
         filename_encoded = quote(filename)
 
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # Создаем новую книгу Excel
+        # Остальной код остается без изменений...
         wb = Workbook()
         
-        # Удаляем лист по умолчанию, если он есть
         if "Sheet" in wb.sheetnames:
             del wb["Sheet"]
         
@@ -604,7 +601,6 @@ async def export_excel(date_range: DateRange):
         
         ws_demands = wb.create_sheet("Отчет по отгрузкам")
         
-        # Заголовки столбцов
         demands_headers = [
             "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
             "Сумма", "Себестоимость", "Накладные расходы", "Прибыль", "Акционный период",
@@ -614,7 +610,6 @@ async def export_excel(date_range: DateRange):
             "Примерная скидка"
         ]
         
-        # Применяем стили к листу отгрузок
         apply_excel_styles(ws_demands, demands_headers, demands_rows, numeric_columns=[7, 8, 9, 10, 12] + list(range(13, 29)), profit_column=10)
         
         # ===== Второй лист - Отчет по товарам =====
@@ -637,7 +632,6 @@ async def export_excel(date_range: DateRange):
         
         ws_items = wb.create_sheet("Отчет по товарам")
         
-        # Заголовки столбцов
         items_headers = [
             "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
             "Товар", "Количество", "Цена", "Сумма", "Себестоимость", "Артикул", "Код",
@@ -647,10 +641,8 @@ async def export_excel(date_range: DateRange):
             "Программатик", "Авито", "Мультиканальные заказы", "Примеренная скидка"
         ]
         
-        # Применяем стили к листу товаров
         apply_excel_styles(ws_items, items_headers, items_rows, numeric_columns=[8, 9, 10, 11, 14, 15, 17] + list(range(18, 33)), profit_column=15)
         
-        # Создаем буфер для сохранения файла
         buffer = io.BytesIO()
         wb.save(buffer)
         buffer.seek(0)
