@@ -462,7 +462,7 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
         "cost_price": cost_price,  # Сохраняем себестоимость
         "article": str(position.get("article", ""))[:100],
         "code": str(position.get("code", ""))[:100],
-        "profit": (amount - cost_price - (overhead_sum * (amount / (float(demand.get("sum", 0)) / 100))) if float(demand.get("sum", 0)) > 0 else 0,
+        "profit": (amount - cost_price - (overhead_sum * (amount / (float(demand.get("sum", 0)) / 100)))) if float(demand.get("sum", 0)) > 0 else 0,
     }
 
     # Распределение накладных расходов пропорционально сумме позиции
