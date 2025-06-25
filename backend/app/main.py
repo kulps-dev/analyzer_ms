@@ -704,7 +704,7 @@ async def create_positions_sheet(wb, cur, date_range):
             dp.quantity, 
             dp.price, 
             dp.amount, 
-            dp.cost_price,  # Себестоимость позиции
+            dp.cost_price,
             dp.article, 
             dp.code,
             dp.overhead, 
