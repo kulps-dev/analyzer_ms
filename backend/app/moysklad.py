@@ -257,13 +257,4 @@ class MoyskladAPI:
             # Применяем полученные данные ко всем отгрузкам
             for demand in demands:
                 if "agent" in demand and "name" not in demand["agent"]:
-                    demand["agent"]["name"] = fetched_data['agents'].get(demand["agent"]["meta"]["href"], "")
-                if "store" in demand and "name" not in demand["store"]:
-                    demand["store"]["name"] = fetched_data['stores'].get(demand["store"]["meta"]["href"], "")
-                if "project" in demand and demand["project"]:
-                    demand["project"]["name"] = fetched_data['projects'].get(demand["project"]["meta"]["href"], "Без проекта")
-                if "salesChannel" in demand and demand["salesChannel"]:
-                    demand["salesChannel"]["name"] = fetched_data['sales_channels'].get(demand["salesChannel"]["meta"]["href"], "Без канала")
-
-        except Exception as e:
-            logger.error(f"Ошибка при пакетном обогащении данных: {str(e)}")
+                    demand["agent"]["name"] = fetched_data['agents'].get(demand["agent

@@ -381,6 +381,8 @@ def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
     
     # Получаем себестоимость
     cost_price = moysklad.get_demand_cost_price(demand_id)
+    demand_sum = float(demand.get("sum", 0)) / 100
+    profit = demand_sum - cost_price - overhead_sum
     
     # Основные данные
     values = {
@@ -391,12 +393,30 @@ def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
         "store": str(demand.get("store", {}).get("name", ""))[:255],
         "project": str(demand.get("project", {}).get("name", "Без проекта"))[:255],
         "sales_channel": str(demand.get("salesChannel", {}).get("name", "Без канала"))[:255],
-        "amount": float(demand.get("sum", 0)) / 100,
+        "amount": demand_sum,
         "cost_price": cost_price,
         "overhead": overhead_sum,
-        "profit": (float(demand.get("sum", 0)) / 100) - cost_price - overhead_sum,
+        "profit": profit,
         "status": str(demand.get("state", {}).get("name", ""))[:100],
-        "comment": str(demand.get("description", ""))[:255]
+        "comment": str(demand.get("description", ""))[:255],
+        "promo_period": "",
+        "delivery_amount": 0,
+        "admin_data": 0,
+        "gdeslon": 0,
+        "cityads": 0,
+        "ozon": 0,
+        "ozon_fbs": 0,
+        "yamarket_fbs": 0,
+        "yamarket_dbs": 0,
+        "yandex_direct": 0,
+        "price_ru": 0,
+        "wildberries": 0,
+        "gis2": 0,
+        "seo": 0,
+        "programmatic": 0,
+        "avito": 0,
+        "multiorders": 0,
+        "estimated_discount": 0
     }
 
     # Обработка атрибутов
@@ -439,13 +459,25 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
     attributes = demand.get("attributes", [])
     
     # Получаем себестоимость позиции
-    cost_price = position.get("cost_price", 0.0)  # Используем значение из position
+    cost_price = position.get("cost_price", 0.0)
     
     # Количество и цена
     quantity = float(position.get("quantity", 0))
     price = float(position.get("price", 0)) / 100
     amount = quantity * price
     
+    # Накладные расходы (overhead) из данных отгрузки
+    overhead_data = demand.get("overhead", {})
+    overhead_sum = (float(overhead_data.get("sum", 0)) / 100) if overhead_data else 0
+    
+    # Расчет доли накладных расходов для позиции
+    demand_sum = float(demand.get("sum", 0)) / 100
+    overhead_share = overhead_sum * (amount / demand_sum) if demand_sum > 0 else 0
+    
+    # Расчет прибыли
+    profit = amount - cost_price - overhead_share
+    
+    # Основные данные
     values = {
         "id": position_id[:255],
         "demand_id": demand_id[:255],
@@ -459,19 +491,32 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
         "quantity": quantity,
         "price": price,
         "amount": amount,
-        "cost_price": cost_price,  # Сохраняем себестоимость
+        "cost_price": cost_price,
         "article": str(position.get("article", ""))[:100],
         "code": str(position.get("code", ""))[:100],
-        "profit": (amount - cost_price - (overhead_sum * (amount / (float(demand.get("sum", 0)) / 100)))) if float(demand.get("sum", 0)) > 0 else 0,
+        "overhead": overhead_share,
+        "profit": profit,
+        "promo_period": "",
+        "delivery_amount": 0,
+        "admin_data": 0,
+        "gdeslon": 0,
+        "cityads": 0,
+        "ozon": 0,
+        "ozon_fbs": 0,
+        "yamarket_fbs": 0,
+        "yamarket_dbs": 0,
+        "yandex_direct": 0,
+        "price_ru": 0,
+        "wildberries": 0,
+        "gis2": 0,
+        "seo": 0,
+        "programmatic": 0,
+        "avito": 0,
+        "multiorders": 0,
+        "estimated_discount": 0
     }
 
-    # Распределение накладных расходов пропорционально сумме позиции
-    if float(demand.get("sum", 0)) > 0:
-        values["overhead"] = overhead_sum * (amount / (float(demand.get("sum", 0)) / 100))
-    else:
-        values["overhead"] = 0
-
-    # Обработка атрибутов (берутся из отгрузки)
+    # Обработка атрибутов
     attr_fields = {
         "promo_period": ("Акционный период", ""),
         "delivery_amount": ("Сумма доставки", 0),
