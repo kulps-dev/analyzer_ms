@@ -657,7 +657,6 @@ async def create_positions_sheet(wb, cur, date_range):
     """Создает лист с товарами, сгруппированными по отгрузкам с себестоимостью"""
     cur.execute("""
         SELECT 
-            d.id as demand_id,
             d.number as demand_number, 
             d.date, 
             d.counterparty, 
@@ -668,7 +667,7 @@ async def create_positions_sheet(wb, cur, date_range):
             dp.quantity, 
             dp.price, 
             dp.amount, 
-            dp.cost_price as position_cost_price,
+            dp.cost_price, 
             dp.article, 
             dp.code,
             dp.overhead, 
@@ -691,7 +690,7 @@ async def create_positions_sheet(wb, cur, date_range):
             d.avito, 
             d.multiorders,
             d.estimated_discount,
-            d.cost_price as total_cost_price
+            d.cost_price as total_cost_price  --Общая себестоимость заказа
         FROM demand_positions dp
         JOIN demands d ON dp.demand_id = d.id
         WHERE d.date BETWEEN %s AND %s
@@ -705,7 +704,7 @@ async def create_positions_sheet(wb, cur, date_range):
     # Заголовки столбцов
     headers = [
         "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
-        "Товар", "Количество", "Цена", "Сумма", "Себестоимость позиции", "Артикул", "Код",
+        "Товар", "Количество", "Цена", "Сумма", "Себестоимость", "Артикул", "Код",
         "Накладные расходы", "Прибыль", "Акционный период", "Сумма доставки", "Адмидат",
         "ГдеСлон", "CityAds", "Ozon", "Ozon FBS", "Яндекс Маркет FBS", "Яндекс Маркет DBS",
         "Яндекс Директ", "Price ru", "Wildberries", "2Gis", "SEO", "Программатик", "Авито",
@@ -738,33 +737,23 @@ async def create_positions_sheet(wb, cur, date_range):
     row_num = 2  # Начинаем с 2 строки (после заголовков)
     
     for row in rows:
-        demand_id = row[0]
-        demand_number = row[1]
+        demand_number = row[0]
         
         # Если новая отгрузка - добавляем строку с номером отгрузки и общими данными
         if demand_number != current_demand:
             current_demand = demand_number
-            
-            # Получаем актуальные данные о себестоимости позиций из API
-            try:
-                cost_data = moysklad.get_demand_cost_data(demand_id)
-                position_costs = {pos['meta']['href']: pos['cost'] for pos in cost_data.get('rows', [{}])[0].get('positions', [])}
-            except Exception as e:
-                logger.error(f"Ошибка при получении себестоимости для отгрузки {demand_id}: {str(e)}")
-                position_costs = {}
-            
             demand_row = [
                 demand_number,  # Номер отгрузки
-                row[2],         # Дата
-                row[3],         # Контрагент
-                row[4],         # Склад
-                row[5],         # Проект
-                row[6],         # Канал продаж
+                row[1],         # Дата
+                row[2],         # Контрагент
+                row[3],         # Склад
+                row[4],         # Проект
+                row[5],         # Канал продаж
                 "Итого по отгрузке:",  # Товар
                 "",             # Количество
                 "",             # Цена
                 row[9],         # Сумма
-                row[32],        # Общая себестоимость заказа (из demands)
+                row[33],        # Общая себестоимость заказа (из demands)
                 "",             # Артикул
                 "",             # Код
                 row[13],        # Накладные расходы
@@ -786,7 +775,7 @@ async def create_positions_sheet(wb, cur, date_range):
                 row[29],       # Программатик
                 row[30],       # Авито
                 row[31],       # Мультиканальные заказы
-                row[33]        # Примерная скидка
+                row[32]        # Примерная скидка
             ]
             
             # Добавляем строку с номером отгрузки
@@ -797,7 +786,7 @@ async def create_positions_sheet(wb, cur, date_range):
                 cell.border = thin_border
                 
                 # Форматирование числовых полей
-                if col_idx in [10, 11, 14, 15, 17] + list(range(18, 34)):
+                if col_idx in [10, 11, 14, 15, 17] + list(range(18, 33)):
                     try:
                         num_value = float(value) if value not in [None, ''] else 0.0
                         cell.value = num_value
@@ -820,13 +809,13 @@ async def create_positions_sheet(wb, cur, date_range):
             "",  # Склад
             "",  # Проект
             "",  # Канал продаж
-            row[7],  # Товар
-            row[8],  # Количество
-            row[9],  # Цена
-            row[10], # Сумма
-            row[11], # Себестоимость позиции (из БД)
-            row[12], # Артикул
-            row[13], # Код
+            row[6],  # Товар
+            row[7],  # Количество
+            row[8],  # Цена
+            row[9],  # Сумма
+            row[10], # Себестоимость позиции
+            row[11], # Артикул
+            row[12], # Код
             "",      # Накладные расходы (пусто для отдельных позиций)
             "",      # Прибыль (пусто для отдельных позиций)
             "",      # Акционный период
