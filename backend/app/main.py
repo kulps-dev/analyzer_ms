@@ -651,7 +651,7 @@ async def create_demands_sheet(wb, cur, date_range):
         "Примерная скидка"
     ]
     
-    apply_sheet_styling(ws, headers, rows, numeric_columns=[7, 8, 9, 10, 12] + list(range(13, 29)), 
+    apply_sheet_styling(ws, headers, rows, numeric_columns=[7, 8, 9, 10, 12] + list(range(13, 30)), 
                         profit_column=10, sheet_type="demands")
 
 async def create_positions_sheet(wb, cur, date_range):
