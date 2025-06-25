@@ -452,9 +452,6 @@ def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
     
     return values
 
-prepare_position_data в main.py:
-
-python
 def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> Dict[str, Any]:
     """Подготовка данных позиции для вставки в БД"""
     position_id = str(position.get("id", ""))
