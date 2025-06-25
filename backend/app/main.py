@@ -833,8 +833,8 @@ async def create_positions_sheet(wb, cur, date_range):
                 cell.fill = PatternFill(start_color='D9E1F2', end_color='D9E1F2', fill_type='solid')
                 cell.border = thin_border
                 
-                # Форматирование числовых полей (включая Примерную скидку)
-                if col in [10, 11, 14, 15, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33]:
+                # Форматирование числовых полей
+                if col in [10, 11, 14, 15, 17] + list(range(18, 32)):
                     try:
                         cell.number_format = money_format
                         cell.alignment = Alignment(horizontal='right', vertical='center')
@@ -859,7 +859,7 @@ async def create_positions_sheet(wb, cur, date_range):
             row[7],          # Количество
             row[8],          # Цена
             row[9],          # Сумма
-            row[10],         # Себестоимость
+            row[10],         # Себестоимость позиции
             row[11],         # Артикул
             row[12],         # Код
             "",              # Накладные расходы
@@ -880,8 +880,8 @@ async def create_positions_sheet(wb, cur, date_range):
             "",              # SEO
             "",              # Программатик
             "",              # Авито
-            row[31],         # Мультиканальные заказы
-            row[32]          # Примерная скидка
+            "",              # Мультиканальные заказы
+            ""               # Примерная скидка
         ])
         
         # Применяем стили к строке с товаром
@@ -890,8 +890,8 @@ async def create_positions_sheet(wb, cur, date_range):
             cell.font = data_font
             cell.border = thin_border
             
-            # Форматирование числовых полей (включая Примерную скидку)
-            if col in [8, 9, 10, 11, 31, 32]:  # Количество, Цена, Сумма, Себестоимость, Мультиканальные заказы, Примерная скидка
+            # Форматирование числовых полей
+            if col in [8, 9, 10, 11]:  # Количество, Цена, Сумма, Себестоимость
                 try:
                     cell.number_format = money_format
                     cell.alignment = Alignment(horizontal='right', vertical='center')
@@ -918,8 +918,8 @@ async def create_positions_sheet(wb, cur, date_range):
         cell.font = Font(bold=True)
         cell.border = thin_border
         
-        # Суммы для числовых столбцов (включая Примерную скидку)
-        if col in [10, 11, 14, 15, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33]:
+        # Суммы для числовых столбцов
+        if col in [10, 11, 14, 15, 17] + list(range(18, 32)):
             column_letter = get_column_letter(col)
             formula = f"SUM({column_letter}2:{column_letter}{row_num})"
             cell.value = f"=ROUND({formula}, 2)"
