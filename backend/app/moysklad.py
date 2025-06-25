@@ -130,43 +130,46 @@ class MoyskladAPI:
             raise
 
     def get_demand_positions(self, demand_id: str) -> List[Dict[str, Any]]:
-        """Получить позиции отгрузки с себестоимостью"""
+        """Получить позиции отгрузки с обогащенными данными о товарах"""
+        url = f"{self.base_url}/entity/demand/{demand_id}/positions"
+        
         try:
-            # Получаем обычные данные позиций
-            positions_url = f"{self.base_url}/entity/demand/{demand_id}/positions"
-            positions = self.get_paginated_data(positions_url)
+            positions = self.get_paginated_data(url)
+            logger.info(f"Получено {len(positions)} позиций для отгрузки {demand_id}")
             
-            # Получаем себестоимости из отчета
-            cost_url = f"{self.base_url}/report/stock/byoperation"
-            cost_params = {"operation.id": demand_id, "limit": 1000}
-            cost_response = self._make_request("GET", cost_url, params=cost_params)
-            cost_data = cost_response.json()
+            # Получаем себестоимости всех позиций одним запросом
+            cost_data = self._get_positions_cost_data(demand_id)
             
-            # Сопоставляем себестоимости с позициями
-            cost_map = {}
-            if cost_data.get("rows"):
-                for pos in cost_data["rows"][0].get("positions", []):
-                    pos_id = pos["meta"]["href"].split("/")[-1]
-                    cost_map[pos_id] = float(pos["cost"]) / 100  # Переводим в рубли
-            
-            # Обогащаем позиции данными
             for position in positions:
-                pos_id = position["id"]
-                position["cost_price"] = cost_map.get(pos_id, 0.0)
-                
-                # Дополнительная информация о товаре
+                # Обогащаем данные о товарах
                 if "assortment" in position:
-                    product = self._get_product_info(position["assortment"]["meta"]["href"])
-                    position.update({
-                        "product_name": product.get("name", ""),
-                        "article": product.get("article", ""),
-                        "code": product.get("code", "")
-                    })
-            
+                    product_url = position["assortment"]["meta"]["href"]
+                    try:
+                        response = self._make_request("GET", product_url)
+                        product_data = response.json()
+                        position["product_name"] = product_data.get("name", "")
+                        position["article"] = product_data.get("article", "")
+                        position["code"] = product_data.get("code", "")
+                    except Exception as e:
+                        logger.warning(f"Ошибка при получении данных товара: {str(e)}")
+                        position["product_name"] = ""
+                        position["article"] = ""
+                        position["code"] = ""
+                
+                # Добавляем себестоимость из предварительно полученных данных
+                position_id = position.get("id")
+                if position_id in cost_data:
+                    position["cost"] = cost_data[position_id]
+                else:
+                    position["cost"] = 0
+                
+                # Добавляем cost_price для совместимости
+                position["cost_price"] = position["cost"] / 100  # Переводим в рубли
+                
             return positions
             
         except Exception as e:
-            logger.error(f"Ошибка получения позиций для отгрузки {demand_id}: {str(e)}")
+            logger.error(f"Ошибка при получении позиций отгрузки {demand_id}: {str(e)}")
             raise
 
     def _get_positions_cost_data(self, demand_id: str) -> Dict[str, float]:
@@ -190,21 +193,6 @@ class MoyskladAPI:
         except Exception as e:
             logger.error(f"Ошибка при получении себестоимостей позиций: {str(e)}")
             return {}
-
-    def _enrich_product_data(self, position: Dict[str, Any]):
-        """Обогащает данные товара в позиции"""
-        try:
-            product_url = position["assortment"]["meta"]["href"]
-            response = self._make_request("GET", product_url)
-            product_data = response.json()
-            position["product_name"] = product_data.get("name", "")
-            position["article"] = product_data.get("article", "")
-            position["code"] = product_data.get("code", "")
-        except Exception as e:
-            logger.warning(f"Ошибка при получении данных товара: {str(e)}")
-            position["product_name"] = ""
-            position["article"] = ""
-            position["code"] = ""
 
     def get_position_cost_price(self, position: Dict[str, Any]) -> float:
         """Получить себестоимость позиции (с учетом количества)"""
