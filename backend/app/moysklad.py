@@ -195,7 +195,7 @@ class MoyskladAPI:
                 for position in data["rows"][0].get("positions", []):
                     cost = position.get("cost", 0)
                     quantity = position.get("quantity", 1)
-                    total_cost += cost * quantity
+                    total_cost += cost
             
             return total_cost / 100  # Переводим в рубли
         
