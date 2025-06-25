@@ -137,7 +137,7 @@ class MoyskladAPI:
             positions = self.get_paginated_data(url)
             logger.info(f"Получено {len(positions)} позиций для отгрузки {demand_id}")
             
-            # Получаем себестоимости всех позиций
+            # Получаем себестоимости всех товаров
             cost_data = self._get_positions_cost_data(demand_id)
             
             for position in positions:
@@ -150,16 +150,19 @@ class MoyskladAPI:
                         position["product_name"] = product_data.get("name", "")
                         position["article"] = product_data.get("article", "")
                         position["code"] = product_data.get("code", "")
+                        
+                        # Получаем ID товара для поиска себестоимости
+                        product_id = product_url.split("/")[-1]
+                        if product_id in cost_data:
+                            position["cost_price"] = cost_data[product_id] / 100  # Переводим в рубли
+                        else:
+                            position["cost_price"] = 0.0
                     except Exception as e:
                         logger.warning(f"Ошибка при получении данных товара: {str(e)}")
                         position["product_name"] = ""
                         position["article"] = ""
                         position["code"] = ""
-                
-                # Добавляем себестоимость из cost_data
-                position_id = position.get("id")
-                if position_id and position_id in cost_data:
-                    position["cost_price"] = cost_data[position_id] / 100  # Переводим в рубли
+                        position["cost_price"] = 0.0
                 else:
                     position["cost_price"] = 0.0
                 
@@ -181,11 +184,15 @@ class MoyskladAPI:
             
             if "rows" in data and len(data["rows"]) > 0:
                 for position in data["rows"][0].get("positions", []):
-                    if "meta" in position and "cost" in position:
-                        # Извлекаем ID позиции из URL в meta.href
-                        position_url = position["meta"]["href"]
-                        position_id = position_url.split("/")[-1]
-                        cost_data[position_id] = float(position["cost"])
+                    if "cost" in position:
+                        # Получаем ID товара из meta.href
+                        meta_href = position.get("meta", {}).get("href", "")
+                        if not meta_href:
+                            continue
+                        
+                        # Извлекаем ID товара (а не позиции)
+                        product_id = meta_href.split("/")[-1]
+                        cost_data[product_id] = float(position["cost"])
             
             return cost_data
         
