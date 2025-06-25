@@ -201,7 +201,7 @@ class MoyskladAPI:
             if "cost" in position:
                 cost_per_unit = float(position.get("cost", 0)) / 100
                 quantity = float(position.get("quantity", 1))
-                return cost_per_unit * quantity
+                return cost_per_unit
             
             # Если нет, делаем запрос к API для получения себестоимости товара
             if "assortment" in position:
@@ -210,7 +210,7 @@ class MoyskladAPI:
                 product_data = response.json()
                 cost_per_unit = float(product_data.get("costPrice", {}).get("value", 0)) / 100
                 quantity = float(position.get("quantity", 1))
-                return cost_per_unit * quantity
+                return cost_per_unit
             
             return 0.0
         except Exception as e:
