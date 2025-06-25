@@ -137,8 +137,11 @@ class MoyskladAPI:
             positions = self.get_paginated_data(url)
             logger.info(f"Получено {len(positions)} позиций для отгрузки {demand_id}")
             
-            # Обогащаем данные о товарах и добавляем себестоимость
+            # Получаем себестоимости всех позиций одним запросом
+            cost_data = self._get_positions_cost_data(demand_id)
+            
             for position in positions:
+                # Обогащаем данные о товарах
                 if "assortment" in position:
                     product_url = position["assortment"]["meta"]["href"]
                     try:
@@ -147,23 +150,49 @@ class MoyskladAPI:
                         position["product_name"] = product_data.get("name", "")
                         position["article"] = product_data.get("article", "")
                         position["code"] = product_data.get("code", "")
-                        
-                        # Добавляем себестоимость позиции
-                        position["cost_price"] = self.get_position_cost_price(position)
                     except Exception as e:
                         logger.warning(f"Ошибка при получении данных товара: {str(e)}")
                         position["product_name"] = ""
                         position["article"] = ""
                         position["code"] = ""
-                        position["cost_price"] = 0.0
+                
+                # Добавляем себестоимость из предварительно полученных данных
+                position_id = position.get("id")
+                if position_id in cost_data:
+                    position["cost"] = cost_data[position_id]
                 else:
-                    position["cost_price"] = 0.0
-            
+                    position["cost"] = 0
+                
+                # Добавляем cost_price для совместимости
+                position["cost_price"] = position["cost"] / 100  # Переводим в рубли
+                
             return positions
-        
+            
         except Exception as e:
             logger.error(f"Ошибка при получении позиций отгрузки {demand_id}: {str(e)}")
             raise
+
+    def _get_positions_cost_data(self, demand_id: str) -> Dict[str, float]:
+        """Получаем себестоимости всех позиций отгрузки"""
+        url = f"{self.base_url}/report/stock/byoperation"
+        params = {"operation.id": demand_id, "limit": 1000}
+        
+        try:
+            response = self._make_request("GET", url, params=params)
+            data = response.json()
+            cost_data = {}
+            
+            if "rows" in data and len(data["rows"]) > 0:
+                for position in data["rows"][0].get("positions", []):
+                    if "meta" in position and "cost" in position:
+                        position_id = position["meta"]["href"].split("/")[-1]
+                        cost_data[position_id] = float(position["cost"])
+            
+            return cost_data
+        
+        except Exception as e:
+            logger.error(f"Ошибка при получении себестоимостей позиций: {str(e)}")
+            return {}
 
     def get_position_cost_price(self, position: Dict[str, Any]) -> float:
         """Получить себестоимость позиции (с учетом количества)"""

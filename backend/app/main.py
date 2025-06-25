@@ -458,7 +458,7 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
     demand_id = str(demand.get("id", ""))
     attributes = demand.get("attributes", [])
     
-    # Получаем себестоимость позиции
+    # Получаем себестоимость позиции (уже в рублях)
     cost_price = position.get("cost_price", 0.0)
     
     # Количество и цена
@@ -474,9 +474,6 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
     demand_sum = float(demand.get("sum", 0)) / 100
     overhead_share = overhead_sum * (amount / demand_sum) if demand_sum > 0 else 0
     
-    # Расчет прибыли
-    profit = amount - cost_price - overhead_share
-    
     # Основные данные
     values = {
         "id": position_id[:255],
@@ -491,11 +488,11 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
         "quantity": quantity,
         "price": price,
         "amount": amount,
-        "cost_price": cost_price,
+        "cost_price": cost_price,  # Себестоимость позиции
         "article": str(position.get("article", ""))[:100],
         "code": str(position.get("code", ""))[:100],
         "overhead": overhead_share,
-        "profit": profit,
+        "profit": amount - cost_price - overhead_share,
         "promo_period": "",
         "delivery_amount": 0,
         "admin_data": 0,
