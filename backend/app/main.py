@@ -452,11 +452,13 @@ def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
     
     return values
 
+prepare_position_data в main.py:
+
+python
 def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> Dict[str, Any]:
     """Подготовка данных позиции для вставки в БД"""
     position_id = str(position.get("id", ""))
     demand_id = str(demand.get("id", ""))
-    attributes = demand.get("attributes", [])
     
     # Получаем себестоимость позиции (уже в рублях)
     cost_price = position.get("cost_price", 0.0)
@@ -466,15 +468,6 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
     price = float(position.get("price", 0)) / 100
     amount = quantity * price
     
-    # Накладные расходы (overhead) из данных отгрузки
-    overhead_data = demand.get("overhead", {})
-    overhead_sum = (float(overhead_data.get("sum", 0)) / 100) if overhead_data else 0
-    
-    # Расчет доли накладных расходов для позиции
-    demand_sum = float(demand.get("sum", 0)) / 100
-    overhead_share = overhead_sum * (amount / demand_sum) if demand_sum > 0 else 0
-    
-    # Основные данные
     values = {
         "id": position_id[:255],
         "demand_id": demand_id[:255],
@@ -736,9 +729,6 @@ async def create_positions_sheet(wb, cur, date_range):
     
     rows = cur.fetchall()
     
-    if not rows:
-        return
-    
     ws = wb.create_sheet("Отчет по товарам")
     
     # Заголовки столбцов
@@ -754,150 +744,184 @@ async def create_positions_sheet(wb, cur, date_range):
     # Добавляем заголовки
     ws.append(headers)
     
-    # Применяем стили к заголовкам
+    # Стили для Excel
     from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
     from openpyxl.utils import get_column_letter
     
-    header_font = Font(name='Calibri', bold=True, size=12, color='FFFFFF')
-    header_fill = PatternFill(start_color='4F81BD', end_color='4F81BD', fill_type='solid')
-    center_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
+    # Стиль заголовков
+    header_font = Font(name='Calibri', bold=True, size=11, color='FFFFFF')
+    header_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
+    header_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'),
                          top=Side(style='thin'), bottom=Side(style='thin'))
     
+    # Применяем стили к заголовкам
     for col in range(1, len(headers) + 1):
         cell = ws.cell(row=1, column=col)
         cell.font = header_font
-        cell.alignment = center_alignment
         cell.fill = header_fill
+        cell.alignment = header_alignment
         cell.border = thin_border
-        ws.column_dimensions[get_column_letter(col)].width = max(15, len(headers[col-1]) * 1.2)
+        # Автоподбор ширины столбца
+        column_letter = get_column_letter(col)
+        ws.column_dimensions[column_letter].width = max(15, len(headers[col-1]) * 1.1)
     
-    # Группируем позиции по отгрузкам
+    # Основной стиль для данных
+    data_font = Font(name='Calibri', size=10)
+    money_format = '#,##0.00'
+    date_format = 'DD.MM.YYYY HH:MM:SS'
+    
+    # Группировка по отгрузкам
     current_demand = None
-    row_num = 2  # Начинаем с 2 строки (после заголовков)
+    row_num = 2
     
     for row in rows:
         demand_number = row[0]
         
-        # Если новая отгрузка - добавляем строку с номером отгрузки и общими данными
+        # Новая отгрузка - добавляем строку с итогами
         if demand_number != current_demand:
             current_demand = demand_number
-            demand_row = [
-                demand_number,  # Номер отгрузки (row[0])
-                row[1],         # Дата (row[1])
-                row[2],         # Контрагент (row[2])
-                row[3],         # Склад (row[3])
-                row[4],         # Проект (row[4])
-                row[5],         # Канал продаж (row[5])
-                "Итого по отгрузке:",  # Товар
-                "",             # Количество
-                "",             # Цена
-                row[9],         # Сумма (row[9])
-                row[33],        # Общая себестоимость заказа (row[33])
-                "",             # Артикул
-                "",             # Код
-                row[13],        # Накладные расходы (row[13])
-                row[14],        # Прибыль (row[14])
-                row[15],        # Акционный период (row[15])
-                row[16],        # Сумма доставки (row[16])
-                row[17],        # Адмидат (row[17])
-                row[18],        # ГдеСлон (row[18])
-                row[19],        # CityAds (row[19])
-                row[20],        # Ozon (row[20])
-                row[21],        # Ozon FBS (row[21])
-                row[22],        # Яндекс Маркет FBS (row[22])
-                row[23],        # Яндекс Маркет DBS (row[23])
-                row[24],        # Яндекс Директ (row[24])
-                row[25],        # Price ru (row[25])
-                row[26],        # Wildberries (row[26])
-                row[27],        # 2Gis (row[27])
-                row[28],        # SEO (row[28])
-                row[29],        # Программатик (row[29])
-                row[30],        # Авито (row[30])
-                row[31],        # Мультиканальные заказы (row[31])
-                row[32]         # Примерная скидка (row[32])
-            ]
             
-            # Добавляем строку с номером отгрузки
-            for col_idx, value in enumerate(demand_row, start=1):
-                cell = ws.cell(row=row_num, column=col_idx, value=value)
+            # Формируем строку с итогами по отгрузке
+            ws.append([
+                demand_number,     # Номер
+                row[1],           # Дата
+                row[2],           # Контрагент
+                row[3],           # Склад
+                row[4],           # Проект
+                row[5],           # Канал
+                "Итого по отгрузке:", # Товар
+                "",               # Количество
+                "",               # Цена
+                row[9],           # Сумма
+                row[33],          # Общая себестоимость
+                "",              # Артикул
+                "",              # Код
+                row[13],         # Накладные расходы
+                row[14],         # Прибыль
+                row[15],         # Акционный период
+                row[16],         # Сумма доставки
+                row[17],         # Адмидат
+                row[18],         # ГдеСлон
+                row[19],         # CityAds
+                row[20],         # Ozon
+                row[21],         # Ozon FBS
+                row[22],         # Яндекс Маркет FBS
+                row[23],         # Яндекс Маркет DBS
+                row[24],         # Яндекс Директ
+                row[25],         # Price ru
+                row[26],         # Wildberries
+                row[27],         # 2Gis
+                row[28],         # SEO
+                row[29],         # Программатик
+                row[30],         # Авито
+                row[31],         # Мультиканальные заказы
+                row[32]          # Примерная скидка
+            ])
+            
+            # Применяем стили к строке с итогами
+            for col in range(1, len(headers) + 1):
+                cell = ws.cell(row=row_num, column=col)
                 cell.font = Font(name='Calibri', bold=True)
-                cell.fill = PatternFill(start_color='F2F2F2', end_color='F2F2F2', fill_type='solid')
+                cell.fill = PatternFill(start_color='D9E1F2', end_color='D9E1F2', fill_type='solid')
                 cell.border = thin_border
                 
                 # Форматирование числовых полей
-                if col_idx in [10, 11, 14, 15, 17] + list(range(18, 33)):
+                if col in [10, 11, 14, 15, 17] + list(range(18, 33)):
                     try:
-                        num_value = float(value) if value not in [None, ''] else 0.0
-                        cell.value = num_value
-                        cell.number_format = '#,##0.00'
+                        cell.number_format = money_format
                         cell.alignment = Alignment(horizontal='right', vertical='center')
-                    except (ValueError, TypeError):
+                    except:
                         pass
                 
                 # Особое форматирование для "Итого по отгрузке:"
-                if col_idx == 7:
+                if col == 7:
                     cell.alignment = Alignment(horizontal='right', vertical='center')
             
             row_num += 1
         
         # Добавляем строку с товаром
-        product_row = [
-            "",          # Пустой номер отгрузки
-            "",          # Дата
-            "",          # Контрагент
-            "",          # Склад
-            "",          # Проект
-            "",          # Канал продаж
-            row[6],      # Товар (row[6])
-            row[7],      # Количество (row[7])
-            row[8],      # Цена (row[8])
-            row[9],      # Сумма (row[9])
-            row[10],     # Себестоимость позиции (row[10])
-            row[11],     # Артикул (row[11])
-            row[12],     # Код (row[12])
-            "",          # Накладные расходы (пусто для отдельных позиций)
-            "",          # Прибыль (пусто для отдельных позиций)
-            "",          # Акционный период
-            "",          # Сумма доставки
-            "",          # Адмидат
-            "",          # ГдеСлон
-            "",          # CityAds
-            "",          # Ozon
-            "",          # Ozon FBS
-            "",          # Яндекс Маркет FBS
-            "",          # Яндекс Маркет DBS
-            "",          # Яндекс Директ
-            "",          # Price ru
-            "",          # Wildberries
-            "",          # 2Gis
-            "",          # SEO
-            "",          # Программатик
-            "",          # Авито
-            "",          # Мультиканальные заказы
-            ""           # Примерная скидка
-        ]
+        ws.append([
+            "",              # Номер
+            "",              # Дата
+            "",              # Контрагент
+            "",              # Склад
+            "",              # Проект
+            "",              # Канал
+            row[6],          # Товар
+            row[7],          # Количество
+            row[8],          # Цена
+            row[9],          # Сумма
+            row[10],         # Себестоимость позиции
+            row[11],         # Артикул
+            row[12],         # Код
+            "",              # Накладные расходы
+            "",              # Прибыль
+            "",              # Акционный период
+            "",              # Сумма доставки
+            "",              # Адмидат
+            "",              # ГдеСлон
+            "",              # CityAds
+            "",              # Ozon
+            "",              # Ozon FBS
+            "",              # Яндекс Маркет FBS
+            "",              # Яндекс Маркет DBS
+            "",              # Яндекс Директ
+            "",              # Price ru
+            "",              # Wildberries
+            "",              # 2Gis
+            "",              # SEO
+            "",              # Программатик
+            "",              # Авито
+            "",              # Мультиканальные заказы
+            ""               # Примерная скидка
+        ])
         
-        # Добавляем строку с товаром
-        for col_idx, value in enumerate(product_row, start=1):
-            cell = ws.cell(row=row_num, column=col_idx, value=value)
+        # Применяем стили к строке с товаром
+        for col in range(1, len(headers) + 1):
+            cell = ws.cell(row=row_num, column=col)
+            cell.font = data_font
             cell.border = thin_border
             
             # Форматирование числовых полей
-            if col_idx in [8, 9, 10, 11]:  # Количество, Цена, Сумма, Себестоимость
+            if col in [8, 9, 10, 11]:  # Количество, Цена, Сумма, Себестоимость
                 try:
-                    num_value = float(value) if value not in [None, ''] else 0.0
-                    cell.value = num_value
-                    cell.number_format = '#,##0.00'
+                    cell.number_format = money_format
                     cell.alignment = Alignment(horizontal='right', vertical='center')
-                except (ValueError, TypeError):
+                except:
                     pass
+            
+            # Форматирование даты
+            elif col == 2:
+                cell.number_format = date_format
         
         row_num += 1
     
-    # Применяем автофильтр и замораживаем заголовки
+    # Добавляем автофильтр и замораживаем заголовки
     ws.auto_filter.ref = ws.dimensions
     ws.freeze_panes = 'A2'
+    
+    # Добавляем итоговую строку
+    total_row = row_num + 1
+    ws.append([""] * len(headers))
+    
+    # Формируем итоговую строку
+    for col in range(1, len(headers) + 1):
+        cell = ws.cell(row=total_row, column=col)
+        cell.font = Font(bold=True)
+        cell.border = thin_border
+        
+        # Суммы для числовых столбцов
+        if col in [10, 11, 14, 15, 17] + list(range(18, 33)):
+            column_letter = get_column_letter(col)
+            formula = f"SUM({column_letter}2:{column_letter}{row_num})"
+            cell.value = f"=ROUND({formula}, 2)"
+            cell.number_format = money_format
+            cell.alignment = Alignment(horizontal='right', vertical='center')
+            cell.fill = PatternFill(start_color='D9E1F2', end_color='D9E1F2', fill_type='solid')
+        elif col == 1:
+            cell.value = "Общий итог:"
+            cell.alignment = Alignment(horizontal='right', vertical='center')
 
 def apply_sheet_styling(ws, headers, rows, numeric_columns, profit_column, sheet_type):
     """Применяет стили к листу Excel"""

@@ -137,7 +137,7 @@ class MoyskladAPI:
             positions = self.get_paginated_data(url)
             logger.info(f"Получено {len(positions)} позиций для отгрузки {demand_id}")
             
-            # Получаем себестоимости всех позиций одним запросом
+            # Получаем себестоимости всех позиций
             cost_data = self._get_positions_cost_data(demand_id)
             
             for position in positions:
@@ -156,15 +156,12 @@ class MoyskladAPI:
                         position["article"] = ""
                         position["code"] = ""
                 
-                # Добавляем себестоимость из предварительно полученных данных
+                # Добавляем себестоимость из cost_data
                 position_id = position.get("id")
                 if position_id in cost_data:
-                    position["cost"] = cost_data[position_id]
+                    position["cost_price"] = cost_data[position_id] / 100  # Переводим в рубли
                 else:
-                    position["cost"] = 0
-                
-                # Добавляем cost_price для совместимости
-                position["cost_price"] = position["cost"] / 100  # Переводим в рубли
+                    position["cost_price"] = 0.0
                 
             return positions
             
