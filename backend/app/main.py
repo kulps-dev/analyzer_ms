@@ -834,7 +834,7 @@ async def create_positions_sheet(wb, cur, date_range):
                 cell.border = thin_border
                 
                 # Форматирование числовых полей
-                if col in [10, 11, 14, 15, 17] + list(range(18, 32)):
+                if col in [10, 11, 14, 15, 17] + list(range(18, 34)):
                     try:
                         cell.number_format = money_format
                         cell.alignment = Alignment(horizontal='right', vertical='center')
@@ -919,7 +919,7 @@ async def create_positions_sheet(wb, cur, date_range):
         cell.border = thin_border
         
         # Суммы для числовых столбцов
-        if col in [10, 11, 14, 15, 17] + list(range(18, 32)):
+        if col in [10, 11, 14, 15, 17] + list(range(18, 34)):
             column_letter = get_column_letter(col)
             formula = f"SUM({column_letter}2:{column_letter}{row_num})"
             cell.value = f"=ROUND({formula}, 2)"
