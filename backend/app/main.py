@@ -704,7 +704,7 @@ async def create_positions_sheet(wb, cur, date_range):
             dp.quantity, 
             dp.price, 
             dp.amount, 
-            dp.cost_price,
+            dp.cost_price,  # Себестоимость позиции
             dp.article, 
             dp.code,
             dp.overhead, 
@@ -727,7 +727,7 @@ async def create_positions_sheet(wb, cur, date_range):
             d.avito, 
             d.multiorders,
             d.estimated_discount,
-            d.cost_price as total_cost_price
+            d.cost_price as total_cost_price  # Общая себестоимость отгрузки
         FROM demand_positions dp
         JOIN demands d ON dp.demand_id = d.id
         WHERE d.date BETWEEN %s AND %s
@@ -735,6 +735,9 @@ async def create_positions_sheet(wb, cur, date_range):
     """, (date_range.start_date, date_range.end_date))
     
     rows = cur.fetchall()
+    
+    if not rows:
+        return
     
     ws = wb.create_sheet("Отчет по товарам")
     
@@ -780,39 +783,39 @@ async def create_positions_sheet(wb, cur, date_range):
         if demand_number != current_demand:
             current_demand = demand_number
             demand_row = [
-                demand_number,  # Номер отгрузки
-                row[1],         # Дата
-                row[2],         # Контрагент
-                row[3],         # Склад
-                row[4],         # Проект
-                row[5],         # Канал продаж
+                demand_number,  # Номер отгрузки (row[0])
+                row[1],         # Дата (row[1])
+                row[2],         # Контрагент (row[2])
+                row[3],         # Склад (row[3])
+                row[4],         # Проект (row[4])
+                row[5],         # Канал продаж (row[5])
                 "Итого по отгрузке:",  # Товар
                 "",             # Количество
                 "",             # Цена
-                row[9],         # Сумма
-                row[33],        # Общая себестоимость заказа (из demands)
+                row[9],         # Сумма (row[9])
+                row[33],        # Общая себестоимость заказа (row[33])
                 "",             # Артикул
                 "",             # Код
-                row[13],        # Накладные расходы
-                row[14],        # Прибыль
-                row[15],       # Акционный период
-                row[16],       # Сумма доставки
-                row[17],       # Адмидат
-                row[18],       # ГдеСлон
-                row[19],       # CityAds
-                row[20],       # Ozon
-                row[21],       # Ozon FBS
-                row[22],       # Яндекс Маркет FBS
-                row[23],       # Яндекс Маркет DBS
-                row[24],       # Яндекс Директ
-                row[25],       # Price ru
-                row[26],       # Wildberries
-                row[27],       # 2Gis
-                row[28],       # SEO
-                row[29],       # Программатик
-                row[30],       # Авито
-                row[31],       # Мультиканальные заказы
-                row[32]        # Примерная скидка
+                row[13],        # Накладные расходы (row[13])
+                row[14],        # Прибыль (row[14])
+                row[15],        # Акционный период (row[15])
+                row[16],        # Сумма доставки (row[16])
+                row[17],        # Адмидат (row[17])
+                row[18],        # ГдеСлон (row[18])
+                row[19],        # CityAds (row[19])
+                row[20],        # Ozon (row[20])
+                row[21],        # Ozon FBS (row[21])
+                row[22],        # Яндекс Маркет FBS (row[22])
+                row[23],        # Яндекс Маркет DBS (row[23])
+                row[24],        # Яндекс Директ (row[24])
+                row[25],        # Price ru (row[25])
+                row[26],        # Wildberries (row[26])
+                row[27],        # 2Gis (row[27])
+                row[28],        # SEO (row[28])
+                row[29],        # Программатик (row[29])
+                row[30],        # Авито (row[30])
+                row[31],        # Мультиканальные заказы (row[31])
+                row[32]         # Примерная скидка (row[32])
             ]
             
             # Добавляем строку с номером отгрузки
@@ -822,7 +825,7 @@ async def create_positions_sheet(wb, cur, date_range):
                 cell.fill = PatternFill(start_color='F2F2F2', end_color='F2F2F2', fill_type='solid')
                 cell.border = thin_border
                 
-                # Форматирование числовых полей (включая себестоимость)
+                # Форматирование числовых полей
                 if col_idx in [10, 11, 14, 15, 17] + list(range(18, 33)):
                     try:
                         num_value = float(value) if value not in [None, ''] else 0.0
@@ -838,41 +841,41 @@ async def create_positions_sheet(wb, cur, date_range):
             
             row_num += 1
         
-        # Добавляем строку с товаром (с себестоимостью для каждого товара)
+        # Добавляем строку с товаром
         product_row = [
-            "",  # Пустой номер отгрузки
-            "",  # Дата
-            "",  # Контрагент
-            "",  # Склад
-            "",  # Проект
-            "",  # Канал продаж
-            row[6],  # Товар
-            row[7],  # Количество
-            row[8],  # Цена
-            row[9],  # Сумма
-            row[10], # Себестоимость позиции
-            row[11], # Артикул
-            row[12], # Код
-            "",      # Накладные расходы (пусто для отдельных позиций)
-            "",      # Прибыль (пусто для отдельных позиций)
-            "",      # Акционный период
-            "",      # Сумма доставки
-            "",      # Адмидат
-            "",      # ГдеСлон
-            "",      # CityAds
-            "",      # Ozon
-            "",      # Ozon FBS
-            "",      # Яндекс Маркет FBS
-            "",      # Яндекс Маркет DBS
-            "",      # Яндекс Директ
-            "",      # Price ru
-            "",      # Wildberries
-            "",      # 2Gis
-            "",      # SEO
-            "",      # Программатик
-            "",      # Авито
-            "",      # Мультиканальные заказы
-            ""       # Примерная скидка
+            "",          # Пустой номер отгрузки
+            "",          # Дата
+            "",          # Контрагент
+            "",          # Склад
+            "",          # Проект
+            "",          # Канал продаж
+            row[6],      # Товар (row[6])
+            row[7],      # Количество (row[7])
+            row[8],      # Цена (row[8])
+            row[9],      # Сумма (row[9])
+            row[10],     # Себестоимость позиции (row[10])
+            row[11],     # Артикул (row[11])
+            row[12],     # Код (row[12])
+            "",          # Накладные расходы (пусто для отдельных позиций)
+            "",          # Прибыль (пусто для отдельных позиций)
+            "",          # Акционный период
+            "",          # Сумма доставки
+            "",          # Адмидат
+            "",          # ГдеСлон
+            "",          # CityAds
+            "",          # Ozon
+            "",          # Ozon FBS
+            "",          # Яндекс Маркет FBS
+            "",          # Яндекс Маркет DBS
+            "",          # Яндекс Директ
+            "",          # Price ru
+            "",          # Wildberries
+            "",          # 2Gis
+            "",          # SEO
+            "",          # Программатик
+            "",          # Авито
+            "",          # Мультиканальные заказы
+            ""           # Примерная скидка
         ]
         
         # Добавляем строку с товаром
@@ -880,7 +883,7 @@ async def create_positions_sheet(wb, cur, date_range):
             cell = ws.cell(row=row_num, column=col_idx, value=value)
             cell.border = thin_border
             
-            # Форматирование чисел (включая себестоимость)
+            # Форматирование числовых полей
             if col_idx in [8, 9, 10, 11]:  # Количество, Цена, Сумма, Себестоимость
                 try:
                     num_value = float(value) if value not in [None, ''] else 0.0
