@@ -158,7 +158,7 @@ class MoyskladAPI:
                 
                 # Добавляем себестоимость из cost_data
                 position_id = position.get("id")
-                if position_id in cost_data:
+                if position_id and position_id in cost_data:
                     position["cost_price"] = cost_data[position_id] / 100  # Переводим в рубли
                 else:
                     position["cost_price"] = 0.0
@@ -182,7 +182,9 @@ class MoyskladAPI:
             if "rows" in data and len(data["rows"]) > 0:
                 for position in data["rows"][0].get("positions", []):
                     if "meta" in position and "cost" in position:
-                        position_id = position["meta"]["href"].split("/")[-1]
+                        # Извлекаем ID позиции из URL в meta.href
+                        position_url = position["meta"]["href"]
+                        position_id = position_url.split("/")[-1]
                         cost_data[position_id] = float(position["cost"])
             
             return cost_data

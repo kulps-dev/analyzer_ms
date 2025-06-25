@@ -456,6 +456,7 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
     """Подготовка данных позиции для вставки в БД"""
     position_id = str(position.get("id", ""))
     demand_id = str(demand.get("id", ""))
+    attributes = demand.get("attributes", [])
     
     # Получаем себестоимость позиции (уже в рублях)
     cost_price = position.get("cost_price", 0.0)
@@ -465,6 +466,15 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
     price = float(position.get("price", 0)) / 100
     amount = quantity * price
     
+    # Накладные расходы (overhead) из данных отгрузки
+    overhead_data = demand.get("overhead", {})
+    overhead_sum = (float(overhead_data.get("sum", 0)) / 100) if overhead_data else 0
+    
+    # Расчет доли накладных расходов для позиции
+    demand_sum = float(demand.get("sum", 0)) / 100
+    overhead_share = overhead_sum * (amount / demand_sum) if demand_sum > 0 else 0
+    
+    # Основные данные
     values = {
         "id": position_id[:255],
         "demand_id": demand_id[:255],
