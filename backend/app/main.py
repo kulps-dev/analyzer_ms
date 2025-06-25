@@ -438,19 +438,14 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
     demand_id = str(demand.get("id", ""))
     attributes = demand.get("attributes", [])
     
-    # Обработка накладных расходов (overhead)
-    overhead_data = demand.get("overhead", {})
-    overhead_sum = (float(overhead_data.get("sum", 0)) / 100) if overhead_data else 0
-    
     # Получаем себестоимость позиции
-    cost_price = moysklad.get_position_cost_price(position)
+    cost_price = position.get("cost_price", 0.0)  # Используем значение из position
     
     # Количество и цена
     quantity = float(position.get("quantity", 0))
     price = float(position.get("price", 0)) / 100
     amount = quantity * price
     
-    # Основные данные
     values = {
         "id": position_id[:255],
         "demand_id": demand_id[:255],
@@ -464,10 +459,10 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
         "quantity": quantity,
         "price": price,
         "amount": amount,
-        "cost_price": cost_price,
+        "cost_price": cost_price,  # Сохраняем себестоимость
         "article": str(position.get("article", ""))[:100],
         "code": str(position.get("code", ""))[:100],
-        "profit": amount - cost_price - (overhead_sum * (amount / (float(demand.get("sum", 0)) / 100)) if float(demand.get("sum", 0)) > 0 else 0),
+        "profit": amount - cost_price - (overhead_sum * (amount / (float(demand.get("sum", 0)) / 100)) if float(demand.get("sum", 0)) > 0 else 0,
     }
 
     # Распределение накладных расходов пропорционально сумме позиции

@@ -137,7 +137,7 @@ class MoyskladAPI:
             positions = self.get_paginated_data(url)
             logger.info(f"Получено {len(positions)} позиций для отгрузки {demand_id}")
             
-            # Обогащаем данные о товарах
+            # Обогащаем данные о товарах и добавляем себестоимость
             for position in positions:
                 if "assortment" in position:
                     product_url = position["assortment"]["meta"]["href"]
@@ -147,11 +147,17 @@ class MoyskladAPI:
                         position["product_name"] = product_data.get("name", "")
                         position["article"] = product_data.get("article", "")
                         position["code"] = product_data.get("code", "")
+                        
+                        # Добавляем себестоимость позиции
+                        position["cost_price"] = self.get_position_cost_price(position)
                     except Exception as e:
                         logger.warning(f"Ошибка при получении данных товара: {str(e)}")
                         position["product_name"] = ""
                         position["article"] = ""
                         position["code"] = ""
+                        position["cost_price"] = 0.0
+                else:
+                    position["cost_price"] = 0.0
             
             return positions
         
@@ -160,26 +166,30 @@ class MoyskladAPI:
             raise
 
     def get_position_cost_price(self, position: Dict[str, Any]) -> float:
-        """Получить себестоимость позиции"""
+        """Получить себестоимость позиции (с учетом количества)"""
         try:
             # Если в позиции есть информация о себестоимости
             if "cost" in position:
-                return float(position.get("cost", 0)) / 100
+                cost_per_unit = float(position.get("cost", 0)) / 100
+                quantity = float(position.get("quantity", 1))
+                return cost_per_unit * quantity
             
-            # Если нет, делаем запрос к API
+            # Если нет, делаем запрос к API для получения себестоимости товара
             if "assortment" in position:
                 product_url = position["assortment"]["meta"]["href"]
                 response = self._make_request("GET", product_url)
                 product_data = response.json()
-                return float(product_data.get("costPrice", {}).get("value", 0)) / 100
+                cost_per_unit = float(product_data.get("costPrice", {}).get("value", 0)) / 100
+                quantity = float(position.get("quantity", 1))
+                return cost_per_unit * quantity
             
-            return 0
+            return 0.0
         except Exception as e:
             logger.error(f"Ошибка при получении себестоимости позиции: {str(e)}")
-            return 0
+            return 0.0
 
     def get_demand_cost_price(self, demand_id: str) -> float:
-        """Получить себестоимость отгрузки (сумма себестоимостей позиций)"""
+        """Получить общую себестоимость отгрузки (сумма себестоимостей всех позиций)"""
         url = f"{self.base_url}/report/stock/byoperation"
         params = {
             "operation.id": demand_id,
@@ -190,18 +200,18 @@ class MoyskladAPI:
             response = self._make_request("GET", url, params=params)
             data = response.json()
             
-            total_cost = 0
+            total_cost = 0.0
             if "rows" in data and len(data["rows"]) > 0:
                 for position in data["rows"][0].get("positions", []):
-                    cost = position.get("cost", 0)
-                    quantity = position.get("quantity", 1)
+                    cost = float(position.get("cost", 0)) / 100  # Переводим в рубли
+                    quantity = float(position.get("quantity", 1))
                     total_cost += cost * quantity
             
-            return total_cost / 100  # Переводим в рубли
+            return total_cost
         
         except Exception as e:
             logger.error(f"Ошибка при получении себестоимости для отгрузки {demand_id}: {str(e)}")
-            return 0
+            return 0.0
 
     def _enrich_demand_data_batch(self, demands: List[Dict[str, Any]]):
         """Пакетное обогащение данных отгрузок"""
