@@ -171,12 +171,7 @@ async def startup_event():
     logger.info("Приложение запущено, база данных инициализирована")
 
 async def process_demands_batch(demands: List[Dict[str, Any]], task_id: str):
-    """
-    Полная обработка пакета отгрузок с:
-    - Подробным логированием
-    - Контролем себестоимости
-    - Пакетной вставкой в БД
-    """
+    """Асинхронная обработка пакета отгрузок с улучшенным логированием"""
     conn = None
     try:
         conn = get_db_connection()
@@ -187,99 +182,65 @@ async def process_demands_batch(demands: List[Dict[str, Any]], task_id: str):
         total_count = len(demands)
         
         logger.info(f"Начало обработки {total_count} отгрузок")
-        logger.debug(f"Первые 3 отгрузки: {demands[:3]}")
-
+        
         demands_batch = []
         positions_batch = []
         
         for idx, demand in enumerate(demands, 1):
-            demand_id = demand.get("id", "unknown")
             try:
-                logger.debug(f"Обработка отгрузки {idx}/{total_count} (ID: {demand_id})")
-                
-                # Проверка наличия позиций
-                if not demand.get("positions"):
-                    logger.warning(f"Отгрузка {demand_id} не содержит позиций!")
-                
                 # Подготовка данных отгрузки
                 demand_values = prepare_demand_data(demand)
                 demands_batch.append(demand_values)
                 
-                # Обработка позиций с контролем себестоимости
-                for position in demand.get("positions", []):
-                    position_id = position.get("id", "unknown")
-                    
-                    # Валидация данных позиции
-                    if not all(k in position for k in ["id", "quantity", "price"]):
-                        logger.error(f"Позиция {position_id} содержит неполные данные! Пропускаем")
-                        continue
-                    
-                    # Логирование себестоимости перед обработкой
-                    cost_before = position.get("cost_price", "не указана")
-                    logger.debug(f"Позиция {position_id} - себестоимость до обработки: {cost_before}")
-                    
-                    # Подготовка данных позиции
-                    position_data = prepare_position_data(demand, position)
-                    positions_batch.append(position_data)
-                    
-                    # Проверка результата
-                    if position_data["cost_price"] == 0:
-                        logger.warning(f"Позиция {position_id} имеет нулевую себестоимость!")
+                # Подготовка данных позиций
+                positions = demand.get("positions", [])
+                for position in positions:
+                    position_values = prepare_position_data(demand, position)
+                    positions_batch.append(position_values)
                 
-                # Пакетная вставка
                 if len(demands_batch) >= batch_size:
-                    # Вставка отгрузок
+                    # Вставляем отгрузки
                     inserted_demands = await insert_demands_batch(cur, demands_batch)
                     saved_count += inserted_demands
                     
-                    # Вставка позиций
-                    inserted_positions = await insert_positions_batch(cur, positions_batch)
-                    
-                    logger.info(
-                        f"Вставлено пакетом: {inserted_demands} отгрузок, "
-                        f"{inserted_positions} позиций (всего обработано: {saved_count})"
-                    )
+                    # Вставляем позиции
+                    await insert_positions_batch(cur, positions_batch)
                     
                     demands_batch = []
                     positions_batch = []
                     
-                    # Обновление статуса задачи
+                    # Обновляем статус задачи
                     if idx % 100 == 0:
-                        progress = f"{saved_count}/{total_count}"
+                        logger.info(f"Обработано {idx}/{total_count} записей")
                         tasks_status[task_id] = {
                             "status": "processing",
-                            "progress": progress,
-                            "message": f"Обработано {idx} отгрузок"
+                            "progress": f"{saved_count}/{total_count}",
+                            "message": f"Обработано {idx} из {total_count}"
                         }
                     
                     time.sleep(0.5)
             
             except Exception as e:
-                logger.error(f"Ошибка обработки отгрузки {demand_id}: {str(e)}")
-                logger.debug("Трассировка ошибки:", exc_info=True)
+                logger.error(f"Ошибка при обработке отгрузки {demand.get('id')}: {str(e)}")
                 continue
         
-        # Вставка остатков
+        # Вставляем оставшиеся записи
         if demands_batch:
-            inserted = await insert_demands_batch(cur, demands_batch)
-            saved_count += inserted
-            logger.info(f"Вставлено остаточных {inserted} отгрузок")
-        
+            saved_count += await insert_demands_batch(cur, demands_batch)
         if positions_batch:
-            inserted = await insert_positions_batch(cur, positions_batch)
-            logger.info(f"Вставлено остаточных {inserted} позиций")
+            await insert_positions_batch(cur, positions_batch)
         
         conn.commit()
-        logger.info(f"Успешно сохранено {saved_count} из {total_count} отгрузок")
+        logger.info(f"Успешно сохранено {saved_count} из {total_count} записей")
         
         tasks_status[task_id] = {
             "status": "completed",
             "progress": f"{saved_count}/{total_count}",
-            "message": f"Обработано {saved_count} отгрузок"
+            "message": f"Успешно сохранено {saved_count} из {total_count} записей"
         }
         
     except Exception as e:
-        logger.error(f"Критическая ошибка: {str(e)}")
+        logger.error(f"Критическая ошибка при обработке пакета: {str(e)}")
         if conn:
             conn.rollback()
         tasks_status[task_id] = {
@@ -290,7 +251,6 @@ async def process_demands_batch(demands: List[Dict[str, Any]], task_id: str):
     finally:
         if conn:
             conn.close()
-        logger.debug("Соединение с БД закрыто")
 
 async def insert_demands_batch(cur, batch_values: List[Dict[str, Any]]) -> int:
     """Массовая вставка пакета данных отгрузок"""
@@ -493,39 +453,31 @@ def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
     return values
 
 def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Полная подготовка данных позиции для вставки в БД
-    с гарантированным учетом себестоимости и подробным логированием
-    """
-    # Логирование входящих данных
-    logger.debug(f"Начало обработки позиции {position.get('id')} для отгрузки {demand.get('id')}")
-    logger.debug(f"Данные позиции: {position}")
+    """Подготовка данных позиции для вставки в БД"""
+    position_id = str(position.get("id", ""))
+    demand_id = str(demand.get("id", ""))
+    attributes = demand.get("attributes", [])
     
-    # Проверка и получение обязательных полей
-    position_id = str(position.get("id", ""))[:255]
-    demand_id = str(demand.get("id", ""))[:255]
+    # Получаем себестоимость позиции (уже в рублях)
+    cost_price = position.get("cost_price", 0.0)
     
-    # Проверка наличия себестоимости
-    if "cost_price" not in position:
-        logger.warning(f"Позиция {position_id} не содержит себестоимости! Будет использовано 0")
-        position["cost_price"] = 0.0
-    
-    # Основные числовые показатели
+    # Количество и цена
     quantity = float(position.get("quantity", 0))
-    price = float(position.get("price", 0)) / 100  # Переводим из копеек в рубли
+    price = float(position.get("price", 0)) / 100
     amount = quantity * price
-    cost_price = float(position.get("cost_price", 0))
     
-    # Расчет накладных расходов
+    # Накладные расходы (overhead) из данных отгрузки
     overhead_data = demand.get("overhead", {})
     overhead_sum = (float(overhead_data.get("sum", 0)) / 100) if overhead_data else 0
+    
+    # Расчет доли накладных расходов для позиции
     demand_sum = float(demand.get("sum", 0)) / 100
     overhead_share = overhead_sum * (amount / demand_sum) if demand_sum > 0 else 0
     
-    # Формируем основной словарь с данными
+    # Основные данные
     values = {
-        "id": position_id,
-        "demand_id": demand_id,
+        "id": position_id[:255],
+        "demand_id": demand_id[:255],
         "demand_number": str(demand.get("name", ""))[:50],
         "date": demand.get("moment", ""),
         "counterparty": str(demand.get("agent", {}).get("name", ""))[:255],
@@ -536,7 +488,7 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
         "quantity": quantity,
         "price": price,
         "amount": amount,
-        "cost_price": cost_price,  # Гарантированно заполнено
+        "cost_price": cost_price,  # Себестоимость позиции
         "article": str(position.get("article", ""))[:100],
         "code": str(position.get("code", ""))[:100],
         "overhead": overhead_share,
@@ -562,7 +514,6 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
     }
 
     # Обработка атрибутов
-    attributes = demand.get("attributes", [])
     attr_fields = {
         "promo_period": ("Акционный период", ""),
         "delivery_amount": ("Сумма доставки", 0),
@@ -593,7 +544,6 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
         else:
             values[field] = str(get_attr_value(attributes, attr_name, default))[:255]
     
-    logger.debug(f"Итоговые данные позиции: {values}")
     return values
 
 def get_attr_value(attrs, attr_name, default=""):
@@ -741,17 +691,8 @@ async def create_demands_sheet(wb, cur, date_range):
                         profit_column=10, sheet_type="demands")
 
 async def create_positions_sheet(wb, cur, date_range):
-    """
-    Создание листа с товарами в Excel с:
-    - Группировкой по отгрузкам
-    - Отображением себестоимости
-    - Профессиональным форматированием
-    """
-    from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
-    from openpyxl.utils import get_column_letter
-    
-    # Выполняем запрос с явным указанием cost_price
-    query = """
+    """Создает лист с товарами, сгруппированными по отгрузкам с себестоимостью"""
+    cur.execute("""
         SELECT 
             d.number as demand_number, 
             d.date, 
@@ -763,27 +704,27 @@ async def create_positions_sheet(wb, cur, date_range):
             dp.quantity, 
             dp.price, 
             dp.amount, 
-            dp.cost_price,  -- Важно: выбираем себестоимость
+            dp.cost_price,
             dp.article, 
             dp.code,
             dp.overhead, 
-            dp.profit,
-            d.promo_period,
-            d.delivery_amount,
-            d.admin_data,
+            dp.profit, 
+            d.promo_period, 
+            d.delivery_amount, 
+            d.admin_data, 
             d.gdeslon,
-            d.cityads,
-            d.ozon,
-            d.ozon_fbs,
-            d.yamarket_fbs,
-            d.yamarket_dbs,
+            d.cityads, 
+            d.ozon, 
+            d.ozon_fbs, 
+            d.yamarket_fbs, 
+            d.yamarket_dbs, 
             d.yandex_direct,
-            d.price_ru,
-            d.wildberries,
-            d.gis2,
-            d.seo,
-            d.programmatic,
-            d.avito,
+            d.price_ru, 
+            d.wildberries, 
+            d.gis2, 
+            d.seo, 
+            d.programmatic, 
+            d.avito, 
             d.multiorders,
             d.estimated_discount,
             d.cost_price as total_cost_price
@@ -791,16 +732,13 @@ async def create_positions_sheet(wb, cur, date_range):
         JOIN demands d ON dp.demand_id = d.id
         WHERE d.date BETWEEN %s AND %s
         ORDER BY d.number, d.date DESC
-    """
-    cur.execute(query, (date_range.start_date, date_range.end_date))
+    """, (date_range.start_date, date_range.end_date))
+    
     rows = cur.fetchall()
     
-    logger.info(f"Получено {len(rows)} позиций для выгрузки в Excel")
-    
-    # Создаем лист
     ws = wb.create_sheet("Отчет по товарам")
     
-    # Заголовки
+    # Заголовки столбцов (добавляем "Себестоимость")
     headers = [
         "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
         "Товар", "Количество", "Цена", "Сумма", "Себестоимость", "Артикул", "Код",
@@ -809,102 +747,154 @@ async def create_positions_sheet(wb, cur, date_range):
         "Яндекс Директ", "Price ru", "Wildberries", "2Gis", "SEO", "Программатик", "Авито",
         "Мультиканальные заказы", "Примерная скидка"
     ]
+    
+    # Добавляем заголовки
     ws.append(headers)
     
-    # Стили для заголовков
-    header_style = {
-        'font': Font(bold=True, color="FFFFFF"),
-        'fill': PatternFill("solid", fgColor="4F81BD"),
-        'alignment': Alignment(horizontal="center", wrap_text=True),
-        'border': Border(left=Side("thin"), right=Side("thin"), 
-                      top=Side("thin"), bottom=Side("thin"))
-    }
+    # Применяем стили к заголовкам
+    from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+    from openpyxl.utils import get_column_letter
+    
+    header_font = Font(name='Calibri', bold=True, size=12, color='FFFFFF')
+    header_fill = PatternFill(start_color='4F81BD', end_color='4F81BD', fill_type='solid')
+    center_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
+                         top=Side(style='thin'), bottom=Side(style='thin'))
     
     for col in range(1, len(headers) + 1):
         cell = ws.cell(row=1, column=col)
-        for attr, value in header_style.items():
-            setattr(cell, attr, value)
+        cell.font = header_font
+        cell.alignment = center_alignment
+        cell.fill = header_fill
+        cell.border = thin_border
         ws.column_dimensions[get_column_letter(col)].width = max(15, len(headers[col-1]) * 1.2)
     
-    # Заполняем данные
+    # Группируем позиции по отгрузкам
     current_demand = None
-    row_num = 2
+    row_num = 2  # Начинаем с 2 строки (после заголовков)
     
     for row in rows:
-        demand_num = row[0]
+        demand_number = row[0]
         
-        # Добавляем строку с номером отгрузки
-        if demand_num != current_demand:
-            current_demand = demand_num
+        # Если новая отгрузка - добавляем строку с номером отгрузки и общими данными
+        if demand_number != current_demand:
+            current_demand = demand_number
             demand_row = [
-                demand_num, row[1], row[2], row[3], row[4], row[5],
-                "Итого по отгрузке:", "", "", row[9], row[32],  # Используем total_cost_price
-                "", "", row[13], row[14], row[15], row[16], row[17],
-                row[18], row[19], row[20], row[21], row[22], row[23],
-                row[24], row[25], row[26], row[27], row[28], row[29],
-                row[30], row[31]
+                demand_number,  # Номер отгрузки
+                row[1],         # Дата
+                row[2],         # Контрагент
+                row[3],         # Склад
+                row[4],         # Проект
+                row[5],         # Канал продаж
+                "Итого по отгрузке:",  # Товар
+                "",             # Количество
+                "",             # Цена
+                row[9],         # Сумма
+                row[33],        # Общая себестоимость заказа (из demands)
+                "",             # Артикул
+                "",             # Код
+                row[13],        # Накладные расходы
+                row[14],        # Прибыль
+                row[15],       # Акционный период
+                row[16],       # Сумма доставки
+                row[17],       # Адмидат
+                row[18],       # ГдеСлон
+                row[19],       # CityAds
+                row[20],       # Ozon
+                row[21],       # Ozon FBS
+                row[22],       # Яндекс Маркет FBS
+                row[23],       # Яндекс Маркет DBS
+                row[24],       # Яндекс Директ
+                row[25],       # Price ru
+                row[26],       # Wildberries
+                row[27],       # 2Gis
+                row[28],       # SEO
+                row[29],       # Программатик
+                row[30],       # Авито
+                row[31],       # Мультиканальные заказы
+                row[32]        # Примерная скидка
             ]
-            ws.append(demand_row)
             
-            # Форматируем строку итогов
-            for col in range(1, len(demand_row) + 1):
-                cell = ws.cell(row=row_num, column=col)
-                cell.font = Font(bold=True)
-                if col >= 7:  # Числовые поля
+            # Добавляем строку с номером отгрузки
+            for col_idx, value in enumerate(demand_row, start=1):
+                cell = ws.cell(row=row_num, column=col_idx, value=value)
+                cell.font = Font(name='Calibri', bold=True)
+                cell.fill = PatternFill(start_color='F2F2F2', end_color='F2F2F2', fill_type='solid')
+                cell.border = thin_border
+                
+                # Форматирование числовых полей (включая себестоимость)
+                if col_idx in [10, 11, 14, 15, 17] + list(range(18, 33)):
                     try:
+                        num_value = float(value) if value not in [None, ''] else 0.0
+                        cell.value = num_value
                         cell.number_format = '#,##0.00'
-                        cell.alignment = Alignment(horizontal="right")
-                    except:
+                        cell.alignment = Alignment(horizontal='right', vertical='center')
+                    except (ValueError, TypeError):
                         pass
-                if col == 7:  # "Итого по отгрузке:"
-                    cell.alignment = Alignment(horizontal="right")
+                
+                # Особое форматирование для "Итого по отгрузке:"
+                if col_idx == 7:
+                    cell.alignment = Alignment(horizontal='right', vertical='center')
             
             row_num += 1
         
-        # Добавляем строку с товаром
+        # Добавляем строку с товаром (с себестоимостью для каждого товара)
         product_row = [
-            "", "", "", "", "", "",  # Пустые поля заголовка
-            row[6],  # product_name
-            row[7],  # quantity
-            row[8],  # price
-            row[9],  # amount
-            row[10],  # cost_price (себестоимость позиции)
-            row[11],  # article
-            row[12],  # code
-            "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""
+            "",  # Пустой номер отгрузки
+            "",  # Дата
+            "",  # Контрагент
+            "",  # Склад
+            "",  # Проект
+            "",  # Канал продаж
+            row[6],  # Товар
+            row[7],  # Количество
+            row[8],  # Цена
+            row[9],  # Сумма
+            row[10], # Себестоимость позиции <-- Добавлено
+            row[11], # Артикул
+            row[12], # Код
+            "",      # Накладные расходы (пусто для отдельных позиций)
+            "",      # Прибыль (пусто для отдельных позиций)
+            "",      # Акционный период
+            "",      # Сумма доставки
+            "",      # Адмидат
+            "",      # ГдеСлон
+            "",      # CityAds
+            "",      # Ozon
+            "",      # Ozon FBS
+            "",      # Яндекс Маркет FBS
+            "",      # Яндекс Маркет DBS
+            "",      # Яндекс Директ
+            "",      # Price ru
+            "",      # Wildberries
+            "",      # 2Gis
+            "",      # SEO
+            "",      # Программатик
+            "",      # Авито
+            "",      # Мультиканальные заказы
+            ""       # Примерная скидка
         ]
-        ws.append(product_row)
         
-        # Форматируем числовые поля
-        for col in [8, 9, 10, 11]:  # Количество, цена, сумма, себестоимость
-            cell = ws.cell(row=row_num, column=col)
-            cell.number_format = '#,##0.00'
-            cell.alignment = Alignment(horizontal="right")
+        # Добавляем строку с товаром
+        for col_idx, value in enumerate(product_row, start=1):
+            cell = ws.cell(row=row_num, column=col_idx, value=value)
+            cell.border = thin_border
+            
+            # Форматирование чисел (включая себестоимость)
+            if col_idx in [8, 9, 10, 11]:  # Добавлен столбец 11 (себестоимость)
+                try:
+                    num_value = float(value) if value not in [None, ''] else 0.0
+                    cell.value = num_value
+                    cell.number_format = '#,##0.00'
+                    cell.alignment = Alignment(horizontal='right', vertical='center')
+                except (ValueError, TypeError):
+                    pass
         
         row_num += 1
     
-    # Добавляем итоговую строку
-    ws.append([""] * len(headers))
-    total_row = row_num + 1
-    
-    for col in range(1, len(headers) + 1):
-        cell = ws.cell(row=total_row, column=col)
-        if col == 1:
-            cell.value = "Итого:"
-            cell.font = Font(bold=True)
-            cell.alignment = Alignment(horizontal="right")
-        elif col in [8, 9, 10, 11, 14, 15]:  # Числовые колонки
-            letter = get_column_letter(col)
-            cell.value = f"=SUM({letter}2:{letter}{row_num})"
-            cell.number_format = '#,##0.00'
-            cell.font = Font(bold=True)
-            cell.alignment = Alignment(horizontal="right")
-    
-    # Настройки листа
+    # Применяем автофильтр и замораживаем заголовки
     ws.auto_filter.ref = ws.dimensions
     ws.freeze_panes = 'A2'
-    
-    logger.info("Лист 'Отчет по товарам' успешно сформирован")
 
 def apply_sheet_styling(ws, headers, rows, numeric_columns, profit_column, sheet_type):
     """Применяет стили к листу Excel"""

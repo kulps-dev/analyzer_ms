@@ -130,33 +130,43 @@ class MoyskladAPI:
             raise
 
     def get_demand_positions(self, demand_id: str) -> List[Dict[str, Any]]:
-        """Получить позиции отгрузки с обогащенными данными о товарах"""
-        url = f"{self.base_url}/entity/demand/{demand_id}/positions"
-        
+        """Получить позиции отгрузки с себестоимостью"""
         try:
-            positions = self.get_paginated_data(url)
-            logger.info(f"Получено {len(positions)} позиций для отгрузки {demand_id}")
+            # Получаем обычные данные позиций
+            positions_url = f"{self.base_url}/entity/demand/{demand_id}/positions"
+            positions = self.get_paginated_data(positions_url)
             
-            # Обогащаем данные о товарах
+            # Получаем себестоимости из отчета
+            cost_url = f"{self.base_url}/report/stock/byoperation"
+            cost_params = {"operation.id": demand_id, "limit": 1000}
+            cost_response = self._make_request("GET", cost_url, params=cost_params)
+            cost_data = cost_response.json()
+            
+            # Сопоставляем себестоимости с позициями
+            cost_map = {}
+            if cost_data.get("rows"):
+                for pos in cost_data["rows"][0].get("positions", []):
+                    pos_id = pos["meta"]["href"].split("/")[-1]
+                    cost_map[pos_id] = float(pos["cost"]) / 100  # Переводим в рубли
+            
+            # Обогащаем позиции данными
             for position in positions:
+                pos_id = position["id"]
+                position["cost_price"] = cost_map.get(pos_id, 0.0)
+                
+                # Дополнительная информация о товаре
                 if "assortment" in position:
-                    product_url = position["assortment"]["meta"]["href"]
-                    try:
-                        response = self._make_request("GET", product_url)
-                        product_data = response.json()
-                        position["product_name"] = product_data.get("name", "")
-                        position["article"] = product_data.get("article", "")
-                        position["code"] = product_data.get("code", "")
-                    except Exception as e:
-                        logger.warning(f"Ошибка при получении данных товара: {str(e)}")
-                        position["product_name"] = ""
-                        position["article"] = ""
-                        position["code"] = ""
+                    product = self._get_product_info(position["assortment"]["meta"]["href"])
+                    position.update({
+                        "product_name": product.get("name", ""),
+                        "article": product.get("article", ""),
+                        "code": product.get("code", "")
+                    })
             
             return positions
-        
+            
         except Exception as e:
-            logger.error(f"Ошибка при получении позиций отгрузки {demand_id}: {str(e)}")
+            logger.error(f"Ошибка получения позиций для отгрузки {demand_id}: {str(e)}")
             raise
 
     def _get_positions_cost_data(self, demand_id: str) -> Dict[str, float]:
