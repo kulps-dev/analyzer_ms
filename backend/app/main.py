@@ -171,7 +171,7 @@ async def startup_event():
     logger.info("Приложение запущено, база данных инициализирована")
 
 async def process_demands_batch(demands: List[Dict[str, Any]], task_id: str):
-    """Асинхронная обработка пакета отгрузок с улучшенным логированием"""
+    """Асинхронная обработка пакета отгрузок с детальным логированием"""
     conn = None
     try:
         conn = get_db_connection()
@@ -182,21 +182,37 @@ async def process_demands_batch(demands: List[Dict[str, Any]], task_id: str):
         total_count = len(demands)
         
         logger.info(f"Начало обработки {total_count} отгрузок")
+        logger.debug(f"Первые 3 отгрузки для примера: {demands[:3]}")
         
         demands_batch = []
         positions_batch = []
         
         for idx, demand in enumerate(demands, 1):
             try:
+                demand_id = demand.get("id", "unknown")
+                logger.debug(f"Обработка отгрузки {idx}/{total_count} (ID: {demand_id})")
+                
                 # Подготовка данных отгрузки
                 demand_values = prepare_demand_data(demand)
                 demands_batch.append(demand_values)
+                logger.debug(f"Подготовлены данные отгрузки: {demand_values}")
                 
                 # Подготовка данных позиций
                 positions = demand.get("positions", [])
-                for position in positions:
+                logger.debug(f"Найдено {len(positions)} позиций в отгрузке")
+                
+                for pos_idx, position in enumerate(positions, 1):
+                    position_id = position.get("id", "unknown")
+                    logger.debug(f"Обработка позиции {pos_idx}/{len(positions)} (ID: {position_id})")
+                    
+                    # Логирование данных о себестоимости перед подготовкой
+                    logger.debug(f"Данные позиции перед обработкой: {position}")
+                    logger.debug(f"Себестоимость позиции: {position.get('cost_price', 'не указана')}")
+                    
                     position_values = prepare_position_data(demand, position)
                     positions_batch.append(position_values)
+                    
+                    logger.debug(f"Подготовлены данные позиции: {position_values}")
                 
                 if len(demands_batch) >= batch_size:
                     # Вставляем отгрузки
@@ -204,34 +220,44 @@ async def process_demands_batch(demands: List[Dict[str, Any]], task_id: str):
                     saved_count += inserted_demands
                     
                     # Вставляем позиции
-                    await insert_positions_batch(cur, positions_batch)
+                    inserted_positions = await insert_positions_batch(cur, positions_batch)
+                    
+                    logger.info(f"Вставлено {inserted_demands} отгрузок и {inserted_positions} позиций (пакет {idx//batch_size})")
                     
                     demands_batch = []
                     positions_batch = []
                     
                     # Обновляем статус задачи
                     if idx % 100 == 0:
-                        logger.info(f"Обработано {idx}/{total_count} записей")
+                        progress_msg = f"Обработано {idx}/{total_count} записей"
+                        logger.info(progress_msg)
                         tasks_status[task_id] = {
                             "status": "processing",
                             "progress": f"{saved_count}/{total_count}",
-                            "message": f"Обработано {idx} из {total_count}"
+                            "message": progress_msg
                         }
                     
                     time.sleep(0.5)
             
             except Exception as e:
                 logger.error(f"Ошибка при обработке отгрузки {demand.get('id')}: {str(e)}")
+                logger.debug(f"Трассировка ошибки:", exc_info=True)
                 continue
         
         # Вставляем оставшиеся записи
         if demands_batch:
-            saved_count += await insert_demands_batch(cur, demands_batch)
+            inserted_demands = await insert_demands_batch(cur, demands_batch)
+            saved_count += inserted_demands
+            logger.info(f"Вставлено оставшихся {inserted_demands} отгрузок")
+        
         if positions_batch:
-            await insert_positions_batch(cur, positions_batch)
+            inserted_positions = await insert_positions_batch(cur, positions_batch)
+            logger.info(f"Вставлено оставшихся {inserted_positions} позиций")
         
         conn.commit()
         logger.info(f"Успешно сохранено {saved_count} из {total_count} записей")
+        logger.debug(f"Последние сохраненные данные отгрузок: {demands_batch[-1:] if demands_batch else 'нет'}")
+        logger.debug(f"Последние сохраненные данные позиций: {positions_batch[-1:] if positions_batch else 'нет'}")
         
         tasks_status[task_id] = {
             "status": "completed",
@@ -241,6 +267,7 @@ async def process_demands_batch(demands: List[Dict[str, Any]], task_id: str):
         
     except Exception as e:
         logger.error(f"Критическая ошибка при обработке пакета: {str(e)}")
+        logger.debug(f"Трассировка критической ошибки:", exc_info=True)
         if conn:
             conn.rollback()
         tasks_status[task_id] = {
@@ -251,6 +278,7 @@ async def process_demands_batch(demands: List[Dict[str, Any]], task_id: str):
     finally:
         if conn:
             conn.close()
+        logger.debug("Соединение с базой данных закрыто")
 
 async def insert_demands_batch(cur, batch_values: List[Dict[str, Any]]) -> int:
     """Массовая вставка пакета данных отгрузок"""
@@ -453,17 +481,22 @@ def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
     return values
 
 def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> Dict[str, Any]:
-    """Подготовка данных позиции для вставки в БД"""
+    """Подготовка данных позиции для вставки в БД с полной обработкой себестоимости"""
     position_id = str(position.get("id", ""))
     demand_id = str(demand.get("id", ""))
     attributes = demand.get("attributes", [])
     
-    # Получаем себестоимость позиции (уже в рублях)
+    # Логирование входящих данных
+    logger.debug(f"Подготовка позиции {position_id} для отгрузки {demand_id}")
+    logger.debug(f"Исходные данные позиции: {position}")
+    
+    # Получаем себестоимость позиции (должна быть заполнена в moysklad.get_demand_positions)
     cost_price = position.get("cost_price", 0.0)
+    logger.debug(f"Полученная себестоимость позиции: {cost_price}")
     
     # Количество и цена
     quantity = float(position.get("quantity", 0))
-    price = float(position.get("price", 0)) / 100
+    price = float(position.get("price", 0)) / 100  # Переводим из копеек в рубли
     amount = quantity * price
     
     # Накладные расходы (overhead) из данных отгрузки
@@ -473,6 +506,9 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
     # Расчет доли накладных расходов для позиции
     demand_sum = float(demand.get("sum", 0)) / 100
     overhead_share = overhead_sum * (amount / demand_sum) if demand_sum > 0 else 0
+    
+    # Расчет прибыли
+    profit = amount - cost_price - overhead_share
     
     # Основные данные
     values = {
@@ -488,11 +524,11 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
         "quantity": quantity,
         "price": price,
         "amount": amount,
-        "cost_price": cost_price,  # Себестоимость позиции
+        "cost_price": cost_price,
         "article": str(position.get("article", ""))[:100],
         "code": str(position.get("code", ""))[:100],
         "overhead": overhead_share,
-        "profit": amount - cost_price - overhead_share,
+        "profit": profit,
         "promo_period": "",
         "delivery_amount": 0,
         "admin_data": 0,
@@ -513,6 +549,9 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
         "estimated_discount": 0
     }
 
+    # Логирование подготовленных значений
+    logger.debug(f"Подготовленные значения позиции: {values}")
+    
     # Обработка атрибутов
     attr_fields = {
         "promo_period": ("Акционный период", ""),
@@ -544,6 +583,7 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
         else:
             values[field] = str(get_attr_value(attributes, attr_name, default))[:255]
     
+    logger.debug(f"Итоговые значения позиции после обработки атрибутов: {values}")
     return values
 
 def get_attr_value(attrs, attr_name, default=""):
