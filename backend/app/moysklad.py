@@ -202,6 +202,21 @@ class MoyskladAPI:
         except Exception as e:
             logger.error(f"Ошибка при получении себестоимости для отгрузки {demand_id}: {str(e)}")
             return 0
+            
+    def get_demand_cost_data(self, demand_id: str) -> Dict[str, Any]:
+    """Получить данные о себестоимости позиций отгрузки"""
+    url = f"{self.base_url}/report/stock/byoperation"
+    params = {
+        "operation.id": demand_id,
+        "limit": 1000
+    }
+    
+    try:
+        response = self._make_request("GET", url, params=params)
+        return response.json()
+    except Exception as e:
+        logger.error(f"Ошибка при получении данных о себестоимости для отгрузки {demand_id}: {str(e)}")
+        return {"rows": []}
 
     def _enrich_demand_data_batch(self, demands: List[Dict[str, Any]]):
         """Пакетное обогащение данных отгрузок"""
