@@ -298,7 +298,4 @@ class MoyskladAPI:
                 if "project" in demand and demand["project"]:
                     demand["project"]["name"] = fetched_data['projects'].get(demand["project"]["meta"]["href"], "Без проекта")
                 if "salesChannel" in demand and demand["salesChannel"]:
-                    demand["salesChannel"]["name"] = fetched_data['sales_channels'].get(demand["salesChannel"]["meta"]["href"], "Без канала")
-
-        except Exception as e:
-            logger.error(f"Ошибка при пакетном обогащении данных: {str(e)}")
+                    de
