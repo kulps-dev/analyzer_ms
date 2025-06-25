@@ -667,7 +667,7 @@ async def create_positions_sheet(wb, cur, date_range):
             dp.quantity, 
             dp.price, 
             dp.amount, 
-            dp.cost_price, 
+            dp.cost_price,
             dp.article, 
             dp.code,
             dp.overhead, 
@@ -690,7 +690,7 @@ async def create_positions_sheet(wb, cur, date_range):
             d.avito, 
             d.multiorders,
             d.estimated_discount,
-            d.cost_price as total_cost_price  --Общая себестоимость заказа
+            d.cost_price as total_cost_price
         FROM demand_positions dp
         JOIN demands d ON dp.demand_id = d.id
         WHERE d.date BETWEEN %s AND %s
@@ -701,7 +701,7 @@ async def create_positions_sheet(wb, cur, date_range):
     
     ws = wb.create_sheet("Отчет по товарам")
     
-    # Заголовки столбцов
+    # Заголовки столбцов (добавляем "Себестоимость")
     headers = [
         "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
         "Товар", "Количество", "Цена", "Сумма", "Себестоимость", "Артикул", "Код",
@@ -785,7 +785,7 @@ async def create_positions_sheet(wb, cur, date_range):
                 cell.fill = PatternFill(start_color='F2F2F2', end_color='F2F2F2', fill_type='solid')
                 cell.border = thin_border
                 
-                # Форматирование числовых полей
+                # Форматирование числовых полей (включая себестоимость)
                 if col_idx in [10, 11, 14, 15, 17] + list(range(18, 33)):
                     try:
                         num_value = float(value) if value not in [None, ''] else 0.0
@@ -813,7 +813,7 @@ async def create_positions_sheet(wb, cur, date_range):
             row[7],  # Количество
             row[8],  # Цена
             row[9],  # Сумма
-            row[10], # Себестоимость позиции
+            row[10], # Себестоимость позиции <-- Добавлено
             row[11], # Артикул
             row[12], # Код
             "",      # Накладные расходы (пусто для отдельных позиций)
@@ -844,7 +844,7 @@ async def create_positions_sheet(wb, cur, date_range):
             cell.border = thin_border
             
             # Форматирование чисел (включая себестоимость)
-            if col_idx in [8, 9, 10, 11]:
+            if col_idx in [8, 9, 10, 11]:  # Добавлен столбец 11 (себестоимость)
                 try:
                     num_value = float(value) if value not in [None, ''] else 0.0
                     cell.value = num_value
