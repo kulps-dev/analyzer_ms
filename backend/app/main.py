@@ -1,4 +1,3 @@
-# main.py
 import time 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -655,7 +654,7 @@ async def create_demands_sheet(wb, cur, date_range):
                         profit_column=10, sheet_type="demands")
 
 async def create_positions_sheet(wb, cur, date_range):
-    """Создает лист с товарами, сгруппированными по отгрузкам"""
+    """Создает лист с товарами, сгруппированными по отгрузкам с себестоимостью"""
     cur.execute("""
         SELECT 
             d.number as demand_number, 
@@ -690,7 +689,8 @@ async def create_positions_sheet(wb, cur, date_range):
             d.programmatic, 
             d.avito, 
             d.multiorders,
-            d.estimated_discount
+            d.estimated_discount,
+            d.cost_price as total_cost_price  # Общая себестоимость заказа
         FROM demand_positions dp
         JOIN demands d ON dp.demand_id = d.id
         WHERE d.date BETWEEN %s AND %s
@@ -752,8 +752,8 @@ async def create_positions_sheet(wb, cur, date_range):
                 "Итого по отгрузке:",  # Товар
                 "",             # Количество
                 "",             # Цена
-                row[9],         # Сумма (из первой позиции, но лучше взять из demands)
-                row[10],        # Себестоимость
+                row[9],         # Сумма
+                row[33],        # Общая себестоимость заказа (из demands)
                 "",             # Артикул
                 "",             # Код
                 row[13],        # Накладные расходы
@@ -801,7 +801,7 @@ async def create_positions_sheet(wb, cur, date_range):
             
             row_num += 1
         
-        # Добавляем строку с товаром (оставляем пустыми общие поля)
+        # Добавляем строку с товаром (с себестоимостью для каждого товара)
         product_row = [
             "",  # Пустой номер отгрузки
             "",  # Дата
@@ -813,7 +813,7 @@ async def create_positions_sheet(wb, cur, date_range):
             row[7],  # Количество
             row[8],  # Цена
             row[9],  # Сумма
-            row[10], # Себестоимость
+            row[10], # Себестоимость позиции
             row[11], # Артикул
             row[12], # Код
             "",      # Накладные расходы (пусто для отдельных позиций)
@@ -843,7 +843,7 @@ async def create_positions_sheet(wb, cur, date_range):
             cell = ws.cell(row=row_num, column=col_idx, value=value)
             cell.border = thin_border
             
-            # Форматирование чисел
+            # Форматирование чисел (включая себестоимость)
             if col_idx in [8, 9, 10, 11]:
                 try:
                     num_value = float(value) if value not in [None, ''] else 0.0
