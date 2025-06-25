@@ -658,15 +658,43 @@ async def create_positions_sheet(wb, cur, date_range):
     """Создает лист с товарами, сгруппированными по отгрузкам"""
     cur.execute("""
         SELECT 
-            demand_number, date, counterparty, store, project, sales_channel,
-            product_name, quantity, price, amount, cost_price, article, code,
-            overhead, profit, promo_period, delivery_amount, admin_data, gdeslon,
-            cityads, ozon, ozon_fbs, yamarket_fbs, yamarket_dbs, yandex_direct,
-            price_ru, wildberries, gis2, seo, programmatic, avito, multiorders,
-            estimated_discount
-        FROM demand_positions
-        WHERE date BETWEEN %s AND %s
-        ORDER BY demand_number, date DESC
+            d.number as demand_number, 
+            d.date, 
+            d.counterparty, 
+            d.store, 
+            d.project, 
+            d.sales_channel,
+            dp.product_name, 
+            dp.quantity, 
+            dp.price, 
+            dp.amount, 
+            dp.cost_price, 
+            dp.article, 
+            dp.code,
+            dp.overhead, 
+            dp.profit, 
+            d.promo_period, 
+            d.delivery_amount, 
+            d.admin_data, 
+            d.gdeslon,
+            d.cityads, 
+            d.ozon, 
+            d.ozon_fbs, 
+            d.yamarket_fbs, 
+            d.yamarket_dbs, 
+            d.yandex_direct,
+            d.price_ru, 
+            d.wildberries, 
+            d.gis2, 
+            d.seo, 
+            d.programmatic, 
+            d.avito, 
+            d.multiorders,
+            d.estimated_discount
+        FROM demand_positions dp
+        JOIN demands d ON dp.demand_id = d.id
+        WHERE d.date BETWEEN %s AND %s
+        ORDER BY d.number, d.date DESC
     """, (date_range.start_date, date_range.end_date))
     
     rows = cur.fetchall()
@@ -711,7 +739,7 @@ async def create_positions_sheet(wb, cur, date_range):
     for row in rows:
         demand_number = row[0]
         
-        # Если новая отгрузка - добавляем строку с номером отгрузки
+        # Если новая отгрузка - добавляем строку с номером отгрузки и общими данными
         if demand_number != current_demand:
             current_demand = demand_number
             demand_row = [
@@ -721,7 +749,33 @@ async def create_positions_sheet(wb, cur, date_range):
                 row[3],         # Склад
                 row[4],         # Проект
                 row[5],         # Канал продаж
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""
+                "Итого по отгрузке:",  # Товар
+                "",             # Количество
+                "",             # Цена
+                row[9],         # Сумма (из первой позиции, но лучше взять из demands)
+                row[10],        # Себестоимость
+                "",             # Артикул
+                "",             # Код
+                row[13],        # Накладные расходы
+                row[14],        # Прибыль
+                row[15],       # Акционный период
+                row[16],       # Сумма доставки
+                row[17],       # Адмидат
+                row[18],       # ГдеСлон
+                row[19],       # CityAds
+                row[20],       # Ozon
+                row[21],       # Ozon FBS
+                row[22],       # Яндекс Маркет FBS
+                row[23],       # Яндекс Маркет DBS
+                row[24],       # Яндекс Директ
+                row[25],       # Price ru
+                row[26],       # Wildberries
+                row[27],       # 2Gis
+                row[28],       # SEO
+                row[29],       # Программатик
+                row[30],       # Авито
+                row[31],       # Мультиканальные заказы
+                row[32]        # Примерная скидка
             ]
             
             # Добавляем строку с номером отгрузки
@@ -729,12 +783,27 @@ async def create_positions_sheet(wb, cur, date_range):
                 cell = ws.cell(row=row_num, column=col_idx, value=value)
                 cell.font = Font(name='Calibri', bold=True)
                 cell.fill = PatternFill(start_color='F2F2F2', end_color='F2F2F2', fill_type='solid')
+                cell.border = thin_border
+                
+                # Форматирование числовых полей
+                if col_idx in [10, 11, 14, 15, 17] + list(range(18, 33)):
+                    try:
+                        num_value = float(value) if value not in [None, ''] else 0.0
+                        cell.value = num_value
+                        cell.number_format = '#,##0.00'
+                        cell.alignment = Alignment(horizontal='right', vertical='center')
+                    except (ValueError, TypeError):
+                        pass
+                
+                # Особое форматирование для "Итого по отгрузке:"
+                if col_idx == 7:
+                    cell.alignment = Alignment(horizontal='right', vertical='center')
             
             row_num += 1
         
-        # Добавляем строку с товаром (оставляем пустым первый столбец)
+        # Добавляем строку с товаром (оставляем пустыми общие поля)
         product_row = [
-            "",  # Пустой номер отгрузки (уже выведен выше)
+            "",  # Пустой номер отгрузки
             "",  # Дата
             "",  # Контрагент
             "",  # Склад
@@ -747,26 +816,26 @@ async def create_positions_sheet(wb, cur, date_range):
             row[10], # Себестоимость
             row[11], # Артикул
             row[12], # Код
-            row[13], # Накладные расходы
-            row[14], # Прибыль
-            row[15], # Акционный период
-            row[16], # Сумма доставки
-            row[17], # Адмидат
-            row[18], # ГдеСлон
-            row[19], # CityAds
-            row[20], # Ozon
-            row[21], # Ozon FBS
-            row[22], # Яндекс Маркет FBS
-            row[23], # Яндекс Маркет DBS
-            row[24], # Яндекс Директ
-            row[25], # Price ru
-            row[26], # Wildberries
-            row[27], # 2Gis
-            row[28], # SEO
-            row[29], # Программатик
-            row[30], # Авито
-            row[31], # Мультиканальные заказы
-            row[32]  # Примерная скидка
+            "",      # Накладные расходы (пусто для отдельных позиций)
+            "",      # Прибыль (пусто для отдельных позиций)
+            "",      # Акционный период
+            "",      # Сумма доставки
+            "",      # Адмидат
+            "",      # ГдеСлон
+            "",      # CityAds
+            "",      # Ozon
+            "",      # Ozon FBS
+            "",      # Яндекс Маркет FBS
+            "",      # Яндекс Маркет DBS
+            "",      # Яндекс Директ
+            "",      # Price ru
+            "",      # Wildberries
+            "",      # 2Gis
+            "",      # SEO
+            "",      # Программатик
+            "",      # Авито
+            "",      # Мультиканальные заказы
+            ""       # Примерная скидка
         ]
         
         # Добавляем строку с товаром
@@ -775,7 +844,7 @@ async def create_positions_sheet(wb, cur, date_range):
             cell.border = thin_border
             
             # Форматирование чисел
-            if col_idx in [8, 9, 10, 11, 14, 15, 17] + list(range(18, 33)):
+            if col_idx in [8, 9, 10, 11]:
                 try:
                     num_value = float(value) if value not in [None, ''] else 0.0
                     cell.value = num_value
