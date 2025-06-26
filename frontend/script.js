@@ -47,12 +47,16 @@ document.addEventListener('DOMContentLoaded', function() {
         const startDate = document.getElementById('start-date').value;
         const endDate = document.getElementById('end-date').value;
         
+        console.log('Нажата кнопка Google Sheets'); // Добавлено
+        
         if (!startDate || !endDate) {
+            console.error('Даты не указаны'); // Добавлено
             showAlert('Пожалуйста, укажите период анализа', 'error');
             return;
         }
     
         try {
+            console.log('Начало экспорта в Google Sheets', {startDate, endDate}); // Добавлено
             showStatus('Создание Google таблицы...', 'loading');
             
             const response = await fetch('/api/export/gsheet', {
@@ -64,19 +68,26 @@ document.addEventListener('DOMContentLoaded', function() {
                 })
             });
     
+            console.log('Ответ сервера получен', response); // Добавлено
+            
             if (!response.ok) {
-                throw new Error(await response.text());
+                const errorText = await response.text();
+                console.error('Ошибка сервера:', errorText); // Добавлено
+                throw new Error(errorText);
             }
     
             const result = await response.json();
+            console.log('Результат:', result); // Добавлено
             
-            // Открываем новую вкладку с таблицей
+            if (!result.spreadsheet_url) {
+                throw new Error('Не получена ссылка на таблицу');
+            }
+            
             window.open(result.spreadsheet_url, '_blank');
-            
             showStatus('Таблица успешно создана', 'success');
             showAlert('Google таблица успешно создана', 'success');
         } catch (error) {
-            console.error('Ошибка:', error);
+            console.error('Полная ошибка:', error); // Добавлено
             showStatus('Ошибка при создании таблицы', 'error');
             showAlert(error.message, 'error');
         }
