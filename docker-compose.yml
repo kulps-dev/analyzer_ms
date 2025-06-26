@@ -4,7 +4,7 @@ services:
   backend:
     volumes:
       - ~/.postgresql:/root/.postgresql:ro
-      - ./path/to/your/credentials:/app/credentials:ro
+      - ./backend/app/credentials:/app/credentials:ro
     build:
       context: ./backend
     ports:

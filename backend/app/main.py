@@ -1044,7 +1044,7 @@ def apply_sheet_styling(ws, headers, rows, numeric_columns, profit_column, sheet
             cell.alignment = right_alignment
 
 # Добавьте в конфигурацию
-GOOGLE_CREDS_PATH = "/app/credentials/service-account.json"  # Путь к файлу с учетными данными
+GOOGLE_CREDS_PATH = "/app/credentials/service-account.json"
 #GOOGLE_SHEETS_FOLDER_ID = "your_folder_id"  # ID папки в Google Drive (опционально)
 
 @app.post("/api/export/gsheet")
