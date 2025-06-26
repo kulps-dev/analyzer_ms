@@ -13,6 +13,7 @@ services:
       - PYTHONUNBUFFERED=1
       - UVICORN_WORKERS=2  # Увеличиваем количество воркеров
       - UVICORN_TIMEOUT=300  # Увеличиваем таймаут
+      - GOOGLE_SERVICE_ACCOUNT_JSON=${GOOGLE_SERVICE_ACCOUNT_JSON}
 
   frontend:
     build:
