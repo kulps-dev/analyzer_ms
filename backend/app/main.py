@@ -23,6 +23,13 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Разрешает все домены (для разработки)
+    allow_methods=["*"],  # Разрешает все HTTP-методы
+    allow_headers=["*"],  # Разрешает все заголовки
+)
+
 # Настройки базы данных
 DB_CONFIG = {
     "host": "87.228.99.200",
