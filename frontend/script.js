@@ -43,7 +43,45 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+    document.getElementById('export-gsheet-btn').addEventListener('click', async function() {
+        const startDate = document.getElementById('start-date').value;
+        const endDate = document.getElementById('end-date').value;
+        
+        if (!startDate || !endDate) {
+            showAlert('Пожалуйста, укажите период анализа', 'error');
+            return;
+        }
     
+        try {
+            showStatus('Создание Google таблицы...', 'loading');
+            
+            const response = await fetch('/api/export/gsheet', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    start_date: startDate + " 00:00:00",
+                    end_date: endDate + " 23:59:59"
+                })
+            });
+    
+            if (!response.ok) {
+                throw new Error(await response.text());
+            }
+    
+            const result = await response.json();
+            
+            // Открываем новую вкладку с таблицей
+            window.open(result.spreadsheet_url, '_blank');
+            
+            showStatus('Таблица успешно создана', 'success');
+            showAlert('Google таблица успешно создана', 'success');
+        } catch (error) {
+            console.error('Ошибка:', error);
+            showStatus('Ошибка при создании таблицы', 'error');
+            showAlert(error.message, 'error');
+        }
+    });
+
     // Добавьте обработчик для новой кнопки
     document.getElementById('save-to-db-btn').addEventListener('click', async function() {
         const startDate = document.getElementById('start-date').value;
