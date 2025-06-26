@@ -18,6 +18,8 @@ import gspread
 from fastapi import HTTPException
 from pathlib import Path
 from fastapi.responses import JSONResponse
+from datetime import datetime
+import json
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO)
@@ -1054,111 +1056,87 @@ GOOGLE_CREDS_PATH = "/app/credentials/service-account.json"
 if not Path(GOOGLE_CREDS_PATH).exists():
     logger.error(f"Google credentials file not found at {GOOGLE_CREDS_PATH}")
 
-# Обновите endpoint /api/export/gsheet
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super().default(obj)
+
 @app.post("/api/export/gsheet")
 async def export_to_gsheet(date_range: DateRange):
-    """Экспорт данных в Google Sheets"""
-    logger.info(f"Начат экспорт в Google Sheets за период {date_range.start_date} - {date_range.end_date}")
-    
     try:
-        # Проверка наличия файла учетных данных
+        logger.info("Проверка учетных данных Google...")
         if not os.path.exists(GOOGLE_CREDS_PATH):
-            logger.error(f"Файл учетных данных Google не найден по пути: {GOOGLE_CREDS_PATH}")
-            raise HTTPException(
+            logger.error("Файл учетных данных не найден!")
+            return JSONResponse(
                 status_code=500,
-                detail="Файл учетных данных Google не найден"
+                content={"detail": "Файл учетных данных Google не найден"}
             )
-        
-        # Инициализация клиента Google Sheets
-        logger.info("Инициализация клиента Google Sheets...")
+
+        logger.info("Инициализация Google Sheets API...")
         gc = gspread.service_account(filename=GOOGLE_CREDS_PATH)
         
-        # Создание новой таблицы
-        logger.info("Создание новой таблицы...")
-        spreadsheet_title = f"Отчет по отгрузкам {date_range.start_date} - {date_range.end_date}"
-        sh = gc.create(spreadsheet_title)
-        
-        # Настройка доступа
-        logger.info("Настройка доступа к таблице...")
+        # Создаем новую таблицу
+        title = f"Отчет {date_range.start_date} - {date_range.end_date}"
+        sh = gc.create(title)
         sh.share(None, perm_type='anyone', role='writer')
         
-        # Получение данных из БД
-        logger.info("Получение данных из БД...")
+        # Получаем данные из БД
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # Получаем данные отгрузок
+        # Запрос с преобразованием datetime в строку
         cur.execute("""
             SELECT 
-                number, date, counterparty, store, project, sales_channel,
-                amount, cost_price, overhead, profit, status, comment
+                number, 
+                to_char(date, 'YYYY-MM-DD HH24:MI:SS') as date,
+                counterparty, 
+                store, 
+                project, 
+                sales_channel,
+                amount, 
+                cost_price, 
+                overhead, 
+                profit, 
+                status, 
+                comment
             FROM demands
             WHERE date BETWEEN %s AND %s
             ORDER BY date DESC
+            LIMIT 100  # Ограничиваем для теста
         """, (date_range.start_date, date_range.end_date))
         
         demands = cur.fetchall()
-        
-        # Получаем данные позиций
-        cur.execute("""
-            SELECT 
-                demand_number, product_name, quantity, price, amount, 
-                cost_price, article, code
-            FROM demand_positions
-            WHERE date BETWEEN %s AND %s
-            ORDER BY date DESC
-        """, (date_range.start_date, date_range.end_date))
-        
-        positions = cur.fetchall()
         conn.close()
         
-        # Заполняем лист с отгрузками
-        logger.info("Заполнение листа с отгрузками...")
-        worksheet_demands = sh.get_worksheet(0)
-        worksheet_demands.update_title("Отгрузки")
+        # Заполняем таблицу
+        worksheet = sh.get_worksheet(0)
+        worksheet.update_title("Отгрузки")
         
-        # Заголовки для отгрузок
-        demands_headers = [
-            "Номер", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
-            "Сумма", "Себестоимость", "Накладные", "Прибыль", "Статус", "Комментарий"
+        # Заголовки
+        headers = [
+            "Номер", "Дата", "Контрагент", "Склад", "Проект", 
+            "Канал продаж", "Сумма", "Себестоимость", "Накладные", 
+            "Прибыль", "Статус", "Комментарий"
         ]
-        worksheet_demands.append_row(demands_headers)
+        worksheet.append_row(headers)
         
-        # Данные отгрузок
+        # Данные
         for row in demands:
-            worksheet_demands.append_row(list(row))
+            worksheet.append_row(list(row))
         
-        # Создаем лист для позиций
-        logger.info("Создание листа с позициями...")
-        worksheet_positions = sh.add_worksheet(title="Позиции", rows=100, cols=20)
-        
-        # Заголовки для позиций
-        positions_headers = [
-            "Номер отгрузки", "Товар", "Количество", "Цена", "Сумма",
-            "Себестоимость", "Артикул", "Код"
-        ]
-        worksheet_positions.append_row(positions_headers)
-        
-        # Данные позиций
-        for row in positions:
-            worksheet_positions.append_row(list(row))
-        
-        logger.info(f"Экспорт завершен. Ссылка на таблицу: {sh.url}")
-        return JSONResponse({
-            "status": "success",
-            "url": sh.url,
-            "message": "Данные успешно экспортированы в Google Sheets"
-        })
+        logger.info(f"Таблица создана: {sh.url}")
+        return {"url": sh.url}
         
     except gspread.exceptions.APIError as e:
-        logger.error(f"Ошибка API Google Sheets: {str(e)}")
-        raise HTTPException(
+        logger.error(f"Ошибка API Google: {str(e)}")
+        return JSONResponse(
             status_code=500,
-            detail=f"Ошибка Google Sheets API: {str(e)}"
+            content={"detail": f"Ошибка Google API: {str(e)}"}
         )
     except Exception as e:
-        logger.error(f"Ошибка при экспорте в Google Sheets: {str(e)}")
-        raise HTTPException(
+        logger.error(f"Ошибка при экспорте: {str(e)}")
+        return JSONResponse(
             status_code=500,
-            detail=f"Ошибка при экспорте: {str(e)}"
+            content={"detail": f"Ошибка при создании таблицы: {str(e)}"}
         )
