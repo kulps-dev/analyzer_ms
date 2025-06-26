@@ -121,9 +121,15 @@ document.addEventListener('DOMContentLoaded', function() {
             showAlert('Пожалуйста, укажите период анализа', 'error');
             return;
         }
-
+    
         try {
             showStatus('Создание Google таблицы...', 'loading');
+            
+            // Показываем индикатор загрузки на кнопке
+            const btn = this;
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Обработка...';
+            btn.disabled = true;
             
             const response = await fetch('/api/export/gsheet', {
                 method: 'POST',
@@ -136,26 +142,31 @@ document.addEventListener('DOMContentLoaded', function() {
                     end_date: endDate + " 23:59:59"
                 })
             });
-
+    
             if (!response.ok) {
                 const error = await response.json();
                 throw new Error(error.detail || 'Ошибка сервера');
             }
-
+    
             const result = await response.json();
             
             if (result.url) {
+                // Открываем таблицу в новой вкладке
                 window.open(result.url, '_blank');
                 showAlert('Google таблица успешно создана', 'success');
+                showStatus('Готово', 'success');
             } else {
                 throw new Error('Не удалось получить ссылку на таблицу');
             }
             
-            showStatus('Готово', 'success');
         } catch (error) {
-            console.error('Ошибка:', error);
+            console.error('Ошибка экспорта в Google Sheets:', error);
             showStatus('Ошибка при создании таблицы', 'error');
             showAlert(error.message, 'error');
+        } finally {
+            // Восстанавливаем кнопку
+            btn.innerHTML = originalText;
+            btn.disabled = false;
         }
     });
 

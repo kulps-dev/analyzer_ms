@@ -17,6 +17,7 @@ from google.oauth2.service_account import Credentials
 import gspread
 from fastapi import HTTPException
 from pathlib import Path
+from fastapi.responses import JSONResponse
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO)
@@ -1056,36 +1057,108 @@ if not Path(GOOGLE_CREDS_PATH).exists():
 # Обновите endpoint /api/export/gsheet
 @app.post("/api/export/gsheet")
 async def export_to_gsheet(date_range: DateRange):
-    logger.info(f"Получен запрос на экспорт в Google Sheets: {date_range}")
+    """Экспорт данных в Google Sheets"""
+    logger.info(f"Начат экспорт в Google Sheets за период {date_range.start_date} - {date_range.end_date}")
     
     try:
-        # Проверка файла
+        # Проверка наличия файла учетных данных
         if not os.path.exists(GOOGLE_CREDS_PATH):
-            logger.error("Файл учетных данных не найден!")
-            raise HTTPException(status_code=500, detail="Файл учетных данных не найден")
+            logger.error(f"Файл учетных данных Google не найден по пути: {GOOGLE_CREDS_PATH}")
+            raise HTTPException(
+                status_code=500,
+                detail="Файл учетных данных Google не найден"
+            )
         
-        # Инициализация клиента
+        # Инициализация клиента Google Sheets
+        logger.info("Инициализация клиента Google Sheets...")
         gc = gspread.service_account(filename=GOOGLE_CREDS_PATH)
         
-        # Создание таблицы
-        sh = gc.create(f"Отчет {date_range.start_date} - {date_range.end_date}")
+        # Создание новой таблицы
+        logger.info("Создание новой таблицы...")
+        spreadsheet_title = f"Отчет по отгрузкам {date_range.start_date} - {date_range.end_date}"
+        sh = gc.create(spreadsheet_title)
         
-        # Доступ
+        # Настройка доступа
+        logger.info("Настройка доступа к таблице...")
         sh.share(None, perm_type='anyone', role='writer')
         
-        # Получение данных
+        # Получение данных из БД
+        logger.info("Получение данных из БД...")
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("SELECT * FROM demands LIMIT 10")  # Тестовый запрос
-        rows = cur.fetchall()
+        
+        # Получаем данные отгрузок
+        cur.execute("""
+            SELECT 
+                number, date, counterparty, store, project, sales_channel,
+                amount, cost_price, overhead, profit, status, comment
+            FROM demands
+            WHERE date BETWEEN %s AND %s
+            ORDER BY date DESC
+        """, (date_range.start_date, date_range.end_date))
+        
+        demands = cur.fetchall()
+        
+        # Получаем данные позиций
+        cur.execute("""
+            SELECT 
+                demand_number, product_name, quantity, price, amount, 
+                cost_price, article, code
+            FROM demand_positions
+            WHERE date BETWEEN %s AND %s
+            ORDER BY date DESC
+        """, (date_range.start_date, date_range.end_date))
+        
+        positions = cur.fetchall()
         conn.close()
         
-        # Запись данных
-        worksheet = sh.get_worksheet(0)
-        worksheet.append_rows(rows)
+        # Заполняем лист с отгрузками
+        logger.info("Заполнение листа с отгрузками...")
+        worksheet_demands = sh.get_worksheet(0)
+        worksheet_demands.update_title("Отгрузки")
         
-        return {"url": sh.url}
+        # Заголовки для отгрузок
+        demands_headers = [
+            "Номер", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
+            "Сумма", "Себестоимость", "Накладные", "Прибыль", "Статус", "Комментарий"
+        ]
+        worksheet_demands.append_row(demands_headers)
         
+        # Данные отгрузок
+        for row in demands:
+            worksheet_demands.append_row(list(row))
+        
+        # Создаем лист для позиций
+        logger.info("Создание листа с позициями...")
+        worksheet_positions = sh.add_worksheet(title="Позиции", rows=100, cols=20)
+        
+        # Заголовки для позиций
+        positions_headers = [
+            "Номер отгрузки", "Товар", "Количество", "Цена", "Сумма",
+            "Себестоимость", "Артикул", "Код"
+        ]
+        worksheet_positions.append_row(positions_headers)
+        
+        # Данные позиций
+        for row in positions:
+            worksheet_positions.append_row(list(row))
+        
+        logger.info(f"Экспорт завершен. Ссылка на таблицу: {sh.url}")
+        return JSONResponse({
+            "status": "success",
+            "url": sh.url,
+            "message": "Данные успешно экспортированы в Google Sheets"
+        })
+        
+    except gspread.exceptions.APIError as e:
+        logger.error(f"Ошибка API Google Sheets: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Ошибка Google Sheets API: {str(e)}"
+        )
     except Exception as e:
-        logger.error(f"Ошибка: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Ошибка при экспорте в Google Sheets: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Ошибка при экспорте: {str(e)}"
+        )
