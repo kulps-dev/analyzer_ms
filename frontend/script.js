@@ -5,6 +5,36 @@ document.addEventListener('DOMContentLoaded', function() {
         locale: "ru"
     });
 
+    // Функция для показа статуса
+    function showStatus(message, type) {
+        const statusBar = document.getElementById('status-bar');
+        statusBar.innerHTML = `<i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'times-circle' : 'spinner'}"></i> ${message}`;
+        statusBar.className = 'status-bar show ' + type;
+    }
+
+    // Функция для показа алерта
+    function showAlert(message, type) {
+        const alert = document.createElement('div');
+        alert.className = `custom-alert ${type} show`;
+        alert.innerHTML = `<i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i> ${message}`;
+        document.body.appendChild(alert);
+        
+        setTimeout(() => {
+            alert.classList.remove('show');
+            setTimeout(() => alert.remove(), 500);
+        }, 3000);
+    }
+
+    // Функция для скачивания Excel
+    function downloadExcel(hexData, filename) {
+        const bytes = new Uint8Array(hexData.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+        const blob = new Blob([bytes], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        link.click();
+    }
+
     // Обработчик кнопки "Скачать Excel"
     document.getElementById('export-excel-btn').addEventListener('click', async function() {
         const startDate = document.getElementById('start-date').value;
@@ -22,8 +52,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    start_date: startDate + " 00:00:00",  // Добавляем время
-                    end_date: endDate + " 23:59:59"       // Добавляем время
+                    start_date: startDate + " 00:00:00",
+                    end_date: endDate + " 23:59:59"
                 })
             });
 
@@ -43,55 +73,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    document.getElementById('export-gsheet-btn').addEventListener('click', async function() {
-        const startDate = document.getElementById('start-date').value;
-        const endDate = document.getElementById('end-date').value;
-        
-        if (!startDate || !endDate) {
-            showAlert('Укажите период анализа', 'error');
-            return;
-        }
-    
-        try {
-            showStatus('Создание Google таблицы...', 'loading');
-            
-            const response = await fetch('http://45.12.230.148:8000/api/export/gsheet', {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify({
-                    start_date: startDate + " 00:00:00",
-                    end_date: endDate + " 23:59:59"
-                })
-            });
-    
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.detail || 'Ошибка сервера');
-            }
-    
-            const result = await response.json();
-            
-            // Открываем таблицу в новой вкладке
-            if (result.spreadsheet_url) {
-                window.open(result.spreadsheet_url, '_blank');
-                showAlert('Таблица создана: ' + result.spreadsheet_url, 'success');
-            } else {
-                throw new Error('Не получена ссылка на таблицу');
-            }
-            
-            showStatus('Готово', 'success');
-            
-        } catch (error) {
-            console.error('Export error:', error);
-            showStatus('Ошибка', 'error');
-            showAlert(error.message, 'error');
-        }
-    });
-
-    // Добавьте обработчик для новой кнопки
+    // Обработчик кнопки "Сохранить в БД"
     document.getElementById('save-to-db-btn').addEventListener('click', async function() {
         const startDate = document.getElementById('start-date').value;
         const endDate = document.getElementById('end-date').value;
@@ -118,8 +100,11 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             const result = await response.json();
-            showStatus('Данные успешно сохранены', 'success');
-            showAlert(result.message, 'success');
+            showStatus('Данные сохраняются в фоне...', 'info');
+            showAlert('Начато сохранение данных в БД. Проверьте статус позже.', 'success');
+            
+            // Проверка статуса задачи
+            checkTaskStatus(result.task_id);
         } catch (error) {
             console.error('Ошибка:', error);
             showStatus('Ошибка при сохранении данных', 'error');
@@ -127,36 +112,81 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    function downloadExcel(hexData, filename) {
-        const bytes = new Uint8Array(hexData.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-        const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-        const url = URL.createObjectURL(blob);
+    // Обработчик кнопки "Отправить в Google Sheets"
+    document.getElementById('export-gsheet-btn').addEventListener('click', async function() {
+        const startDate = document.getElementById('start-date').value;
+        const endDate = document.getElementById('end-date').value;
         
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    }
+        if (!startDate || !endDate) {
+            showAlert('Пожалуйста, укажите период анализа', 'error');
+            return;
+        }
 
-    function showStatus(message, type) {
-        const statusBar = document.getElementById('status-bar');
-        statusBar.innerHTML = `<i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'times-circle' : 'spinner fa-spin'}"></i> ${message}`;
-        statusBar.className = `status-bar show ${type}`;
-    }
+        try {
+            showStatus('Создание Google таблицы...', 'loading');
+            
+            const response = await fetch('/api/export/gsheet', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    start_date: startDate + " 00:00:00",
+                    end_date: endDate + " 23:59:59"
+                })
+            });
 
-    function showAlert(message, type) {
-        const alert = document.createElement('div');
-        alert.className = `custom-alert ${type}`;
-        alert.innerHTML = `<i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i> ${message}`;
-        document.body.appendChild(alert);
-        
-        setTimeout(() => alert.classList.add('show'), 10);
-        setTimeout(() => {
-            alert.classList.remove('show');
-            setTimeout(() => document.body.removeChild(alert), 500);
-        }, 3000);
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Ошибка сервера');
+            }
+
+            const result = await response.json();
+            
+            if (result.url) {
+                window.open(result.url, '_blank');
+                showAlert('Google таблица успешно создана', 'success');
+            } else {
+                throw new Error('Не удалось получить ссылку на таблицу');
+            }
+            
+            showStatus('Готово', 'success');
+        } catch (error) {
+            console.error('Ошибка:', error);
+            showStatus('Ошибка при создании таблицы', 'error');
+            showAlert(error.message, 'error');
+        }
+    });
+
+    // Функция для проверки статуса задачи
+    function checkTaskStatus(taskId) {
+        const interval = setInterval(async () => {
+            try {
+                const response = await fetch(`/api/task-status/${taskId}`);
+                if (!response.ok) {
+                    clearInterval(interval);
+                    throw new Error(await response.text());
+                }
+
+                const status = await response.json();
+                showStatus(`${status.message} (${status.progress})`, 
+                          status.status === 'completed' ? 'success' : 
+                          status.status === 'failed' ? 'error' : 'loading');
+
+                if (status.status === 'completed' || status.status === 'failed') {
+                    clearInterval(interval);
+                    if (status.status === 'completed') {
+                        showAlert('Данные успешно сохранены в БД', 'success');
+                    } else {
+                        showAlert('Ошибка при сохранении данных в БД', 'error');
+                    }
+                }
+            } catch (error) {
+                clearInterval(interval);
+                console.error('Ошибка проверки статуса:', error);
+                showStatus('Ошибка при проверке статуса', 'error');
+            }
+        }, 2000);
     }
 });

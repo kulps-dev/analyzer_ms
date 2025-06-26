@@ -1056,57 +1056,36 @@ if not Path(GOOGLE_CREDS_PATH).exists():
 # Обновите endpoint /api/export/gsheet
 @app.post("/api/export/gsheet")
 async def export_to_gsheet(date_range: DateRange):
-    logger.info(f"Starting Google Sheets export for {date_range}")
+    logger.info(f"Получен запрос на экспорт в Google Sheets: {date_range}")
     
     try:
-        # Проверка существования файла с учетными данными
-        if not Path(GOOGLE_CREDS_PATH).exists():
-            raise HTTPException(status_code=500, detail="Google credentials file not found")
+        # Проверка файла
+        if not os.path.exists(GOOGLE_CREDS_PATH):
+            logger.error("Файл учетных данных не найден!")
+            raise HTTPException(status_code=500, detail="Файл учетных данных не найден")
         
-        # Подключение к Google API
-        scopes = [
-            'https://www.googleapis.com/auth/spreadsheets',
-            'https://www.googleapis.com/auth/drive'
-        ]
+        # Инициализация клиента
+        gc = gspread.service_account(filename=GOOGLE_CREDS_PATH)
         
-        creds = Credentials.from_service_account_file(GOOGLE_CREDS_PATH, scopes=scopes)
-        client = gspread.authorize(creds)
+        # Создание таблицы
+        sh = gc.create(f"Отчет {date_range.start_date} - {date_range.end_date}")
         
-        # Создание новой таблицы
-        spreadsheet_title = f"Отчет по отгрузкам {date_range.start_date} - {date_range.end_date}"
-        spreadsheet = client.create(spreadsheet_title)
+        # Доступ
+        sh.share(None, perm_type='anyone', role='writer')
         
-        # Настройка доступа (опционально)
-        spreadsheet.share(None, perm_type='anyone', role='writer')
-        
-        # Получение данных из БД
+        # Получение данных
         conn = get_db_connection()
         cur = conn.cursor()
-        
-        cur.execute("""
-            SELECT number, date, counterparty, store, project, 
-                   sales_channel, amount, cost_price, profit
-            FROM demands
-            WHERE date BETWEEN %s AND %s
-            ORDER BY date DESC
-        """, (date_range.start_date, date_range.end_date))
-        
+        cur.execute("SELECT * FROM demands LIMIT 10")  # Тестовый запрос
         rows = cur.fetchall()
         conn.close()
         
-        # Запись данных в таблицу
-        worksheet = spreadsheet.get_worksheet(0)
-        worksheet.update(
-            'A1', 
-            [['Номер', 'Дата', 'Контрагент', 'Склад', 'Проект', 'Канал', 'Сумма', 'Себестоимость', 'Прибыль']] + rows
-        )
+        # Запись данных
+        worksheet = sh.get_worksheet(0)
+        worksheet.append_rows(rows)
         
-        return {
-            "status": "success",
-            "spreadsheet_url": spreadsheet.url,
-            "message": "Таблица успешно создана"
-        }
+        return {"url": sh.url}
         
     except Exception as e:
-        logger.error(f"Google Sheets export error: {str(e)}")
+        logger.error(f"Ошибка: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
