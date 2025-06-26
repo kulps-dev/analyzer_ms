@@ -123,49 +123,48 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     
         try {
-            showStatus('Создание Google таблицы...', 'loading');
-            
-            // Показываем индикатор загрузки на кнопке
+            // Показываем загрузку
             const btn = this;
-            const originalText = btn.innerHTML;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Обработка...';
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Создание...';
             btn.disabled = true;
             
+            showStatus('Создание Google таблицы...', 'loading');
+            console.log('Отправка запроса на /api/export/gsheet'); // Логирование
+    
             const response = await fetch('/api/export/gsheet', {
                 method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     start_date: startDate + " 00:00:00",
                     end_date: endDate + " 23:59:59"
                 })
             });
     
+            console.log('Получен ответ:', response); // Логирование
+    
             if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.detail || 'Ошибка сервера');
+                const error = await response.text();
+                throw new Error(error || 'Ошибка сервера');
             }
     
             const result = await response.json();
+            console.log('Результат:', result); // Логирование
             
             if (result.url) {
-                // Открываем таблицу в новой вкладке
                 window.open(result.url, '_blank');
-                showAlert('Google таблица успешно создана', 'success');
-                showStatus('Готово', 'success');
+                showAlert('Таблица создана: ' + result.url, 'success');
             } else {
-                throw new Error('Не удалось получить ссылку на таблицу');
+                throw new Error('Не получена ссылка на таблицу');
             }
             
+            showStatus('Готово', 'success');
         } catch (error) {
-            console.error('Ошибка экспорта в Google Sheets:', error);
-            showStatus('Ошибка при создании таблицы', 'error');
+            console.error('Ошибка экспорта:', error);
+            showStatus('Ошибка', 'error');
             showAlert(error.message, 'error');
         } finally {
             // Восстанавливаем кнопку
-            btn.innerHTML = originalText;
+            btn.innerHTML = '<i class="fab fa-google"></i> Отправить в Google Sheets';
             btn.disabled = false;
         }
     });
