@@ -13,6 +13,10 @@ import asyncio
 from typing import List, Dict, Any
 import logging
 import uuid
+from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO)
@@ -1032,3 +1036,156 @@ def apply_sheet_styling(ws, headers, rows, numeric_columns, profit_column, sheet
         elif col == 1:
             cell.value = "Итого:"
             cell.alignment = right_alignment
+
+# Конфигурация Google Sheets API
+SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+SERVICE_ACCOUNT_FILE = 'analyzer_ms/backend/core-rhythm-464107-m7-8b21e91d4c7c.json'  # Ваш файл сервисного аккаунта
+
+class GoogleSheetsExporter:
+    def __init__(self):
+        self.creds = None
+        self.service = None
+
+    def authenticate(self):
+        """Аутентификация с использованием сервисного аккаунта"""
+        try:
+            self.creds = Credentials.from_service_account_file(
+                SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+            self.service = build('sheets', 'v4', credentials=self.creds)
+        except Exception as e:
+            logger.error(f"Google Sheets authentication failed: {str(e)}")
+            raise
+
+    async def create_spreadsheet(self, title: str) -> str:
+        """Создает новую таблицу и возвращает её ID"""
+        try:
+            spreadsheet = {
+                'properties': {
+                    'title': title
+                }
+            }
+            spreadsheet = self.service.spreadsheets().create(
+                body=spreadsheet,
+                fields='spreadsheetId'
+            ).execute()
+            return spreadsheet.get('spreadsheetId')
+        except HttpError as error:
+            logger.error(f"Google Sheets API error: {str(error)}")
+            raise
+
+    async def write_data_to_sheet(self, spreadsheet_id: str, data: List[Dict[str, Any]]):
+        """Записывает данные в таблицу"""
+        try:
+            # Преобразуем данные в формат для Google Sheets
+            values = self._prepare_data(data)
+            
+            body = {
+                'values': values
+            }
+            
+            result = self.service.spreadsheets().values().update(
+                spreadsheetId=spreadsheet_id,
+                range="A1",
+                valueInputOption="USER_ENTERED",
+                body=body
+            ).execute()
+            
+            return result
+        except HttpError as error:
+            logger.error(f"Google Sheets write error: {str(error)}")
+            raise
+
+    def _prepare_data(self, data: List[Dict[str, Any]]) -> List[List[Any]]:
+        """Преобразует данные в формат для Google Sheets"""
+        if not data:
+            return []
+        
+        # Заголовки столбцов (первая строка)
+        headers = list(data[0].keys())
+        values = [headers]
+        
+        # Данные
+        for item in data:
+            row = [str(item.get(key, "")) for key in headers]
+            values.append(row)
+        
+        return values
+
+# Инициализация экспортера
+gsheets_exporter = GoogleSheetsExporter()
+
+@app.post("/api/export/gsheet")
+async def export_to_google_sheets(date_range: DateRange):
+    """Экспорт данных в Google Sheets"""
+    conn = None
+    try:
+        # Аутентификация
+        gsheets_exporter.authenticate()
+        
+        # Получаем данные из БД
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Получаем отгрузки
+        cur.execute("""
+            SELECT * FROM demands 
+            WHERE date BETWEEN %s AND %s
+            ORDER BY date DESC
+        """, (date_range.start_date, date_range.end_date))
+        demands = cur.fetchall()
+        
+        # Получаем позиции (если нужно)
+        cur.execute("""
+            SELECT * FROM demand_positions
+            JOIN demands ON demand_positions.demand_id = demands.id
+            WHERE demands.date BETWEEN %s AND %s
+            ORDER BY demands.date DESC
+        """, (date_range.start_date, date_range.end_date))
+        positions = cur.fetchall()
+        
+        if not demands:
+            raise HTTPException(status_code=404, detail="No data found for the selected period")
+        
+        # Создаем таблицу
+        spreadsheet_name = f"Отчет по отгрузкам {date_range.start_date} - {date_range.end_date}"
+        spreadsheet_id = await gsheets_exporter.create_spreadsheet(spreadsheet_name)
+        
+        # Записываем данные об отгрузках
+        await gsheets_exporter.write_data_to_sheet(spreadsheet_id, demands)
+        
+        # Создаем второй лист с позициями (опционально)
+        if positions:
+            # Создаем новый лист
+            body = {
+                'requests': [{
+                    'addSheet': {
+                        'properties': {
+                            'title': 'Товары'
+                        }
+                    }
+                }]
+            }
+            self.service.spreadsheets().batchUpdate(
+                spreadsheetId=spreadsheet_id,
+                body=body
+            ).execute()
+            
+            # Записываем данные о позициях
+            await gsheets_exporter.write_data_to_sheet(
+                spreadsheet_id, 
+                positions,
+                sheet_name='Товары'
+            )
+        
+        return {
+            "status": "success",
+            "spreadsheet_url": f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}",
+            "message": "Данные успешно экспортированы в Google Sheets"
+        }
+        
+    except Exception as e:
+        logger.error(f"Export to Google Sheets failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()

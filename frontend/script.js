@@ -42,6 +42,45 @@ document.addEventListener('DOMContentLoaded', function() {
             showAlert(error.message, 'error');
         }
     });
+
+    document.getElementById('export-gsheet-btn').addEventListener('click', async function() {
+        const startDate = document.getElementById('start-date').value;
+        const endDate = document.getElementById('end-date').value;
+        
+        if (!startDate || !endDate) {
+            showAlert('Пожалуйста, укажите период анализа', 'error');
+            return;
+        }
+    
+        try {
+            showStatus('Экспорт в Google Sheets...', 'loading');
+            
+            const response = await fetch('/api/export/gsheet', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    start_date: startDate + " 00:00:00",
+                    end_date: endDate + " 23:59:59"
+                })
+            });
+    
+            if (!response.ok) {
+                throw new Error(await response.text());
+            }
+    
+            const result = await response.json();
+            showStatus('Данные успешно экспортированы', 'success');
+            showAlert(result.message, 'success');
+            
+            // Открываем таблицу в новой вкладке
+            window.open(result.spreadsheet_url, '_blank');
+        } catch (error) {
+            console.error('Ошибка:', error);
+            showStatus('Ошибка при экспорте данных', 'error');
+            showAlert(error.message, 'error');
+        }
+    });
+
     // Добавьте обработчик для новой кнопки
     document.getElementById('save-to-db-btn').addEventListener('click', async function() {
         const startDate = document.getElementById('start-date').value;
