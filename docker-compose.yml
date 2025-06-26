@@ -2,24 +2,31 @@ version: '3.8'
 
 services:
   backend:
+    build:
+      context: ./backend
     volumes:
       - ~/.postgresql:/root/.postgresql:ro
       - ./backend/app/credentials:/app/credentials:ro
-    build:
-      context: ./backend
     ports:
       - "8000:8000"
-    restart: unless-stopped
     environment:
       - PYTHONUNBUFFERED=1
-      - UVICORN_WORKERS=2  # Увеличиваем количество воркеров
-      - UVICORN_TIMEOUT=300  # Увеличиваем таймаут
+    restart: unless-stopped
+    networks:
+      - analyzer-network
+
   frontend:
     build:
       context: .
       dockerfile: Dockerfile
     ports:
       - "80:80"
-    restart: unless-stopped
     depends_on:
       - backend
+    restart: unless-stopped
+    networks:
+      - analyzer-network
+
+networks:
+  analyzer-network:
+    driver: bridge
