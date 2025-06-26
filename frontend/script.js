@@ -47,48 +47,46 @@ document.addEventListener('DOMContentLoaded', function() {
         const startDate = document.getElementById('start-date').value;
         const endDate = document.getElementById('end-date').value;
         
-        console.log('Нажата кнопка Google Sheets'); // Добавлено
-        
         if (!startDate || !endDate) {
-            console.error('Даты не указаны'); // Добавлено
-            showAlert('Пожалуйста, укажите период анализа', 'error');
+            showAlert('Укажите период анализа', 'error');
             return;
         }
     
         try {
-            console.log('Начало экспорта в Google Sheets', {startDate, endDate}); // Добавлено
             showStatus('Создание Google таблицы...', 'loading');
             
-            const response = await fetch('/api/export/gsheet', {
+            const response = await fetch('http://45.12.230.148:8000/api/export/gsheet', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
                 body: JSON.stringify({
                     start_date: startDate + " 00:00:00",
                     end_date: endDate + " 23:59:59"
                 })
             });
     
-            console.log('Ответ сервера получен', response); // Добавлено
-            
             if (!response.ok) {
-                const errorText = await response.text();
-                console.error('Ошибка сервера:', errorText); // Добавлено
-                throw new Error(errorText);
+                const error = await response.json();
+                throw new Error(error.detail || 'Ошибка сервера');
             }
     
             const result = await response.json();
-            console.log('Результат:', result); // Добавлено
             
-            if (!result.spreadsheet_url) {
+            // Открываем таблицу в новой вкладке
+            if (result.spreadsheet_url) {
+                window.open(result.spreadsheet_url, '_blank');
+                showAlert('Таблица создана: ' + result.spreadsheet_url, 'success');
+            } else {
                 throw new Error('Не получена ссылка на таблицу');
             }
             
-            window.open(result.spreadsheet_url, '_blank');
-            showStatus('Таблица успешно создана', 'success');
-            showAlert('Google таблица успешно создана', 'success');
+            showStatus('Готово', 'success');
+            
         } catch (error) {
-            console.error('Полная ошибка:', error); // Добавлено
-            showStatus('Ошибка при создании таблицы', 'error');
+            console.error('Export error:', error);
+            showStatus('Ошибка', 'error');
             showAlert(error.message, 'error');
         }
     });

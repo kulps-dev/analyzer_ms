@@ -16,6 +16,7 @@ import uuid
 from google.oauth2.service_account import Credentials
 import gspread
 from fastapi import HTTPException
+from pathlib import Path
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO)
@@ -1043,25 +1044,48 @@ def apply_sheet_styling(ws, headers, rows, numeric_columns, profit_column, sheet
             cell.value = "Итого:"
             cell.alignment = right_alignment
 
-# Добавьте в конфигурацию
-GOOGLE_CREDS_PATH = "/app/credentials/service-account.json"
-#GOOGLE_SHEETS_FOLDER_ID = "your_folder_id"  # ID папки в Google Drive (опционально)
+# Добавьте в импорты (если нет)
+import os
+from pathlib import Path
 
+# Обновите конфигурацию Google Sheets (замените текущий блок)
+GOOGLE_CREDS_PATH = "/app/credentials/service-account.json"
+if not Path(GOOGLE_CREDS_PATH).exists():
+    logger.error(f"Google credentials file not found at {GOOGLE_CREDS_PATH}")
+
+# Обновите endpoint /api/export/gsheet
 @app.post("/api/export/gsheet")
 async def export_to_gsheet(date_range: DateRange):
+    logger.info(f"Starting Google Sheets export for {date_range}")
+    
     try:
-        # Получаем данные из БД
+        # Проверка существования файла с учетными данными
+        if not Path(GOOGLE_CREDS_PATH).exists():
+            raise HTTPException(status_code=500, detail="Google credentials file not found")
+        
+        # Подключение к Google API
+        scopes = [
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/drive'
+        ]
+        
+        creds = Credentials.from_service_account_file(GOOGLE_CREDS_PATH, scopes=scopes)
+        client = gspread.authorize(creds)
+        
+        # Создание новой таблицы
+        spreadsheet_title = f"Отчет по отгрузкам {date_range.start_date} - {date_range.end_date}"
+        spreadsheet = client.create(spreadsheet_title)
+        
+        # Настройка доступа (опционально)
+        spreadsheet.share(None, perm_type='anyone', role='writer')
+        
+        # Получение данных из БД
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # Запрос данных (аналогично экспорту в Excel)
         cur.execute("""
-            SELECT 
-                number, date, counterparty, store, project, sales_channel,
-                amount, cost_price, overhead, profit, promo_period, delivery_amount,
-                admin_data, gdeslon, cityads, ozon, ozon_fbs, yamarket_fbs,
-                yamarket_dbs, yandex_direct, price_ru, wildberries, gis2, seo,
-                programmatic, avito, multiorders, estimated_discount
+            SELECT number, date, counterparty, store, project, 
+                   sales_channel, amount, cost_price, profit
             FROM demands
             WHERE date BETWEEN %s AND %s
             ORDER BY date DESC
@@ -1070,53 +1094,19 @@ async def export_to_gsheet(date_range: DateRange):
         rows = cur.fetchall()
         conn.close()
         
-        # Подключаемся к Google Sheets
-        scopes = ['https://www.googleapis.com/auth/spreadsheets',
-                 'https://www.googleapis.com/auth/drive']
-        
-        creds = Credentials.from_service_account_file(
-            GOOGLE_CREDS_PATH, scopes=scopes)
-        
-        client = gspread.authorize(creds)
-        
-        # Создаем новую таблицу
-        spreadsheet = client.create(
-            f"Отчет по отгрузкам {date_range.start_date} - {date_range.end_date}")
-        
-        # Если нужно поместить в определенную папку
-        if GOOGLE_SHEETS_FOLDER_ID:
-            spreadsheet.move_to_folder(GOOGLE_SHEETS_FOLDER_ID)
-        
-        # Получаем первый лист
+        # Запись данных в таблицу
         worksheet = spreadsheet.get_worksheet(0)
+        worksheet.update(
+            'A1', 
+            [['Номер', 'Дата', 'Контрагент', 'Склад', 'Проект', 'Канал', 'Сумма', 'Себестоимость', 'Прибыль']] + rows
+        )
         
-        # Заголовки
-        headers = [
-            "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
-            "Сумма", "Себестоимость", "Накладные расходы", "Прибыль", "Акционный период",
-            "Сумма доставки", "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS",
-            "Яндекс Маркет FBS", "Яндекс Маркет DBS", "Яндекс Директ", "Price ru",
-            "Wildberries", "2Gis", "SEO", "Программатик", "Авито", "Мультиканальные заказы",
-            "Примерная скидка"
-        ]
-        
-        # Добавляем данные
-        worksheet.append_row(headers)
-        for row in rows:
-            worksheet.append_row(list(row))
-        
-        # Форматирование
-        worksheet.format("A1:AA1", {
-            "backgroundColor": {"red": 0.2, "green": 0.4, "blue": 0.6},
-            "textFormat": {"bold": True, "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}}
-        })
-        
-        # Возвращаем ссылку на таблицу
         return {
             "status": "success",
             "spreadsheet_url": spreadsheet.url,
-            "spreadsheet_id": spreadsheet.id
+            "message": "Таблица успешно создана"
         }
         
     except Exception as e:
+        logger.error(f"Google Sheets export error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
