@@ -1074,7 +1074,7 @@ class DecimalEncoder(json.JSONEncoder):
 @app.post("/api/export/gsheet")
 async def export_to_gsheet(date_range: DateRange):
     try:
-        logger.info("Создание Google Таблицы с улучшенным оформлением...")
+        logger.info("Создание Google Таблицы с оформлением как в Excel...")
         
         # Проверка учетных данных
         if not os.path.exists(GOOGLE_CREDS_PATH):
@@ -1092,9 +1092,13 @@ async def export_to_gsheet(date_range: DateRange):
         sh = gc.create(title)
         sh.share(None, perm_type='anyone', role='writer')
 
+        # Удаляем дефолтный лист
+        if len(sh.worksheets()) > 1:
+            sh.del_worksheet(sh.get_worksheet(0))
+
         # Стили оформления
         HEADER_STYLE = {
-            "backgroundColor": {"red": 0.13, "green": 0.38, "blue": 0.58},
+            "backgroundColor": {"red": 0.20, "green": 0.47, "blue": 0.73},  # Синий как в Excel
             "textFormat": {"bold": True, "fontSize": 11, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
             "horizontalAlignment": "CENTER",
             "verticalAlignment": "MIDDLE",
@@ -1107,14 +1111,26 @@ async def export_to_gsheet(date_range: DateRange):
             }
         }
 
-        CELL_STYLE = {
+        SUMMARY_ROW_STYLE = {
+            "backgroundColor": {"red": 0.85, "green": 0.88, "blue": 0.94},  # Светло-синий как в Excel
+            "textFormat": {"bold": True},
+            "borders": HEADER_STYLE["borders"]
+        }
+
+        PRODUCT_ROW_STYLE = {
+            "backgroundColor": {"red": 1, "green": 1, "blue": 1},  # Белый фон
             "borders": {
                 "top": {"style": "SOLID", "width": 1, "color": {"red": 0.8, "green": 0.8, "blue": 0.8}},
                 "bottom": {"style": "SOLID", "width": 1, "color": {"red": 0.8, "green": 0.8, "blue": 0.8}},
                 "left": {"style": "SOLID", "width": 1, "color": {"red": 0.8, "green": 0.8, "blue": 0.8}},
                 "right": {"style": "SOLID", "width": 1, "color": {"red": 0.8, "green": 0.8, "blue": 0.8}}
-            },
-            "wrapStrategy": "WRAP"
+            }
+        }
+
+        TOTAL_ROW_STYLE = {
+            "backgroundColor": {"red": 0.85, "green": 0.85, "blue": 0.85},  # Серый фон
+            "textFormat": {"bold": True},
+            "borders": HEADER_STYLE["borders"]
         }
 
         NUMBER_FORMAT = {
@@ -1127,198 +1143,15 @@ async def export_to_gsheet(date_range: DateRange):
             "horizontalAlignment": "CENTER"
         }
 
-        # ===== 1. ЛИСТ С ОТГРУЗКАМИ =====
-        worksheet_demands = sh.get_worksheet(0)
-        worksheet_demands.update_title("Отгрузки")
+        NEGATIVE_PROFIT_STYLE = {
+            "backgroundColor": {"red": 1, "green": 0.8, "blue": 0.8}  # Красный для отрицательной прибыли
+        }
 
+        # ===== 1. ЛИСТ С ТОВАРАМИ (как основной в Excel) =====
+        worksheet_positions = sh.add_worksheet(title="Отчет по товарам", rows=1000, cols=33)
+        
         conn = get_db_connection()
         cur = conn.cursor()
-        
-        # Получаем данные
-        cur.execute("""
-            SELECT 
-                number, date::text, counterparty, store, project, sales_channel,
-                amount::float, cost_price::float, overhead::float, profit::float, 
-                promo_period, delivery_amount::float, admin_data::float,
-                gdeslon::float, cityads::float, ozon::float, ozon_fbs::float,
-                yamarket_fbs::float, yamarket_dbs::float, yandex_direct::float,
-                price_ru::float, wildberries::float, gis2::float, seo::float,
-                programmatic::float, avito::float, multiorders::float,
-                estimated_discount::float, status, comment
-            FROM demands
-            WHERE date BETWEEN %s AND %s
-            ORDER BY date DESC
-        """, (date_range.start_date, date_range.end_date))
-        
-        demands = cur.fetchall()
-        
-        # Заголовки
-        demands_headers = [
-            "Номер", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
-            "Сумма", "Себестоимость", "Накладные", "Прибыль", "Акционный период",
-            "Сумма доставки", "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS",
-            "Я.Маркет FBS", "Я.Маркет DBS", "Я.Директ", "Price ru", "Wildberries",
-            "2ГИС", "SEO", "Программатик", "Авито", "Мультизаказы", "Примерная скидка",
-            "Статус", "Комментарий"
-        ]
-        
-        # Добавляем заголовки и данные
-        worksheet_demands.append_row(demands_headers)
-        if demands:
-            worksheet_demands.append_rows([list(row) for row in demands])
-        
-        # Форматируем весь лист
-        last_row = len(demands) + 1 if demands else 1
-        requests = [{
-            "repeatCell": {
-                "range": {
-                    "sheetId": worksheet_demands.id,
-                    "startRowIndex": 0,
-                    "endRowIndex": last_row,
-                    "startColumnIndex": 0,
-                    "endColumnIndex": 30
-                },
-                "cell": {"userEnteredFormat": CELL_STYLE},
-                "fields": "userEnteredFormat"
-            }
-        }]
-        
-        # Форматирование заголовков
-        requests.append({
-            "repeatCell": {
-                "range": {
-                    "sheetId": worksheet_demands.id,
-                    "startRowIndex": 0,
-                    "endRowIndex": 1
-                },
-                "cell": {"userEnteredFormat": HEADER_STYLE},
-                "fields": "userEnteredFormat"
-            }
-        })
-        
-        # Форматирование числовых столбцов (G-J, L-AA)
-        for col in [6, 7, 8, 9] + list(range(11, 28)):
-            requests.append({
-                "repeatCell": {
-                    "range": {
-                        "sheetId": worksheet_demands.id,
-                        "startRowIndex": 1,
-                        "endRowIndex": last_row,
-                        "startColumnIndex": col,
-                        "endColumnIndex": col + 1
-                    },
-                    "cell": {"userEnteredFormat": {**NUMBER_FORMAT, **CELL_STYLE}},
-                    "fields": "userEnteredFormat"
-                }
-            })
-        
-        # Форматирование дат (столбец B)
-        requests.append({
-            "repeatCell": {
-                "range": {
-                    "sheetId": worksheet_demands.id,
-                    "startRowIndex": 1,
-                    "endRowIndex": last_row,
-                    "startColumnIndex": 1,
-                    "endColumnIndex": 2
-                },
-                "cell": {"userEnteredFormat": {**DATE_FORMAT, **CELL_STYLE}},
-                "fields": "userEnteredFormat"
-            }
-        })
-        
-        # Установка ширины столбцов
-        column_widths = [
-            {"pixelSize": 80},   # A: Номер
-            {"pixelSize": 150},  # B: Дата
-            {"pixelSize": 200},  # C: Контрагент
-            {"pixelSize": 150},  # D: Склад
-            {"pixelSize": 120},  # E: Проект
-            {"pixelSize": 150},  # F: Канал продаж
-            {"pixelSize": 100},  # G: Сумма
-            {"pixelSize": 120},  # H: Себестоимость
-            {"pixelSize": 100},  # I: Накладные
-            {"pixelSize": 100},  # J: Прибыль
-            {"pixelSize": 120},  # K: Акц. период
-            {"pixelSize": 100},  # L: Доставка
-            {"pixelSize": 100},  # M: Адмидат
-            {"pixelSize": 100},  # N: ГдеСлон
-            {"pixelSize": 100},  # O: CityAds
-            {"pixelSize": 80},   # P: Ozon
-            {"pixelSize": 100},  # Q: Ozon FBS
-            {"pixelSize": 120},  # R: Я.Маркет FBS
-            {"pixelSize": 120},  # S: Я.Маркет DBS
-            {"pixelSize": 100},  # T: Я.Директ
-            {"pixelSize": 100},  # U: Price ru
-            {"pixelSize": 120},  # V: Wildberries
-            {"pixelSize": 80},   # W: 2ГИС
-            {"pixelSize": 80},   # X: SEO
-            {"pixelSize": 120},  # Y: Программатик
-            {"pixelSize": 80},   # Z: Авито
-            {"pixelSize": 120},  # AA: Мультизаказы
-            {"pixelSize": 120},  # AB: Примерная скидка
-            {"pixelSize": 100},  # AC: Статус
-            {"pixelSize": 200}   # AD: Комментарий
-        ]
-        
-        requests.append({
-            "updateDimensionProperties": {
-                "range": {
-                    "sheetId": worksheet_demands.id,
-                    "dimension": "COLUMNS",
-                    "startIndex": 0,
-                    "endIndex": 30
-                },
-                "properties": {"pixelSize": 100},  # Значение по умолчанию
-                "fields": "pixelSize"
-            }
-        })
-        
-        for i, width in enumerate(column_widths):
-            requests.append({
-                "updateDimensionProperties": {
-                    "range": {
-                        "sheetId": worksheet_demands.id,
-                        "dimension": "COLUMNS",
-                        "startIndex": i,
-                        "endIndex": i + 1
-                    },
-                    "properties": width,
-                    "fields": "pixelSize"
-                }
-            })
-        
-        # Фильтры и закрепление
-        requests.extend([
-            {
-                "setBasicFilter": {
-                    "filter": {
-                        "range": {
-                            "sheetId": worksheet_demands.id,
-                            "startRowIndex": 0,
-                            "endRowIndex": last_row,
-                            "startColumnIndex": 0,
-                            "endColumnIndex": 30
-                        }
-                    }
-                }
-            },
-            {
-                "updateSheetProperties": {
-                    "properties": {
-                        "sheetId": worksheet_demands.id,
-                        "gridProperties": {"frozenRowCount": 1}
-                    },
-                    "fields": "gridProperties.frozenRowCount"
-                }
-            }
-        ])
-        
-        # Применяем все запросы
-        sh.batch_update({"requests": requests})
-        
-        # ===== 2. ЛИСТ С ТОВАРАМИ =====
-        worksheet_positions = sh.add_worksheet(title="Товары", rows=1000, cols=32)
         
         # Получаем данные
         cur.execute("""
@@ -1339,68 +1172,71 @@ async def export_to_gsheet(date_range: DateRange):
         """, (date_range.start_date, date_range.end_date))
         
         positions = cur.fetchall()
-        conn.close()
         
-        # Заголовки
+        # Заголовки (как в Excel)
         pos_headers = [
-            "Номер", "Дата", "Контрагент", "Склад", "Проект", "Канал",
-            "Товар", "Кол-во", "Цена", "Сумма", "Себестоимость", "Артикул", "Код",
-            "Накладные", "Прибыль", "Акц. период", "Доставка", "Адмидат",
-            "ГдеСлон", "CityAds", "Ozon", "Ozon FBS", "Я.Маркет FBS", "Я.Маркет DBS",
-            "Я.Директ", "Price ru", "Wildberries", "2ГИС", "SEO", "Программатик", "Авито",
-            "Мультизаказы", "Примерная скидка"
+            "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
+            "Товар", "Количество", "Цена", "Сумма", "Себестоимость", "Артикул", "Код",
+            "Накладные расходы", "Прибыль", "Акционный период", "Сумма доставки", "Адмидат",
+            "ГдеСлон", "CityAds", "Ozon", "Ozon FBS", "Яндекс Маркет FBS", "Яндекс Маркет DBS",
+            "Яндекс Директ", "Price ru", "Wildberries", "2Gis", "SEO", "Программатик", "Авито",
+            "Мультиканальные заказы", "Примерная скидка"
         ]
         
         # Добавляем заголовки
         worksheet_positions.append_row(pos_headers)
         
-        # Добавляем данные с группировкой
+        # Подготовка данных для вставки с группировкой как в Excel
         if positions:
             current_demand = None
             rows_to_add = []
+            batch_size = 100  # Размер пакета для вставки
+            total_rows = 0
             
             for row in positions:
                 demand_number = row[0]
                 
+                # Новая отгрузка - добавляем строку с итогами
                 if demand_number != current_demand:
                     current_demand = demand_number
+                    
+                    # Получаем общую себестоимость по отгрузке
+                    cur.execute("""
+                        SELECT cost_price FROM demands 
+                        WHERE number = %s AND date BETWEEN %s AND %s
+                        LIMIT 1
+                    """, (demand_number, date_range.start_date, date_range.end_date))
+                    total_cost = cur.fetchone()[0] if cur.rowcount > 0 else 0
+                    
+                    # Строка с итогами по отгрузке
                     rows_to_add.append([
                         demand_number, row[1], row[2], row[3], row[4], row[5],
-                        "ИТОГО ПО ОТГРУЗКЕ", "", "", row[9], row[10], "", "",
+                        "Итого по отгрузке:", "", "", row[9], total_cost, "", "",
                         row[13], row[14], row[15], row[16], row[17], row[18],
                         row[19], row[20], row[21], row[22], row[23], row[24],
                         row[25], row[26], row[27], row[28], row[29], row[30],
                         row[31]
                     ])
+                    total_rows += 1
                 
+                # Строка с товаром
                 rows_to_add.append([
                     "", "", "", "", "", "",
                     row[6], row[7], row[8], row[9], row[10], row[11], row[12],
                     "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""
                 ])
+                total_rows += 1
             
-            worksheet_positions.append_rows(rows_to_add)
+            # Вставляем данные пакетами
+            for i in range(0, len(rows_to_add), batch_size):
+                batch = rows_to_add[i:i + batch_size]
+                worksheet_positions.append_rows(batch)
         
         # Форматируем лист с товарами
-        last_row = len(positions)*2 + 1 if positions else 1
+        last_row = total_rows + 1 if positions else 1
         requests = []
         
-        # Основное форматирование ячеек
-        requests.append({
-            "repeatCell": {
-                "range": {
-                    "sheetId": worksheet_positions.id,
-                    "startRowIndex": 0,
-                    "endRowIndex": last_row,
-                    "startColumnIndex": 0,
-                    "endColumnIndex": 32
-                },
-                "cell": {"userEnteredFormat": CELL_STYLE},
-                "fields": "userEnteredFormat"
-            }
-        })
-        
-        # Форматирование заголовков
+        # 1. Форматирование заголовков
         requests.append({
             "repeatCell": {
                 "range": {
@@ -1408,16 +1244,59 @@ async def export_to_gsheet(date_range: DateRange):
                     "startRowIndex": 0,
                     "endRowIndex": 1
                 },
-                "cell": {"userEnteredFormat": {
-                    **HEADER_STYLE,
-                    "backgroundColor": {"red": 0.23, "green": 0.52, "blue": 0.23}
-                }},
+                "cell": {"userEnteredFormat": HEADER_STYLE},
                 "fields": "userEnteredFormat"
             }
         })
         
-        # Форматирование числовых столбцов (H, I, J, K, N, O, Q-AD)
-        for col in [7, 8, 9, 10, 13, 14] + list(range(16, 32)):
+        # 2. Форматирование строк с товарами
+        requests.append({
+            "repeatCell": {
+                "range": {
+                    "sheetId": worksheet_positions.id,
+                    "startRowIndex": 1,
+                    "endRowIndex": last_row
+                },
+                "cell": {"userEnteredFormat": PRODUCT_ROW_STYLE},
+                "fields": "userEnteredFormat"
+            }
+        })
+        
+        # 3. Форматирование строк с итогами по отгрузке
+        # Находим все строки с "Итого по отгрузке:"
+        if positions:
+            for i, row in enumerate(rows_to_add, start=1):
+                if row[6] == "Итого по отгрузке:":
+                    requests.append({
+                        "repeatCell": {
+                            "range": {
+                                "sheetId": worksheet_positions.id,
+                                "startRowIndex": i,
+                                "endRowIndex": i + 1
+                            },
+                            "cell": {"userEnteredFormat": SUMMARY_ROW_STYLE},
+                            "fields": "userEnteredFormat"
+                        }
+                    })
+                    
+                    # Выравнивание "Итого по отгрузке:" по правому краю
+                    requests.append({
+                        "repeatCell": {
+                            "range": {
+                                "sheetId": worksheet_positions.id,
+                                "startRowIndex": i,
+                                "endRowIndex": i + 1,
+                                "startColumnIndex": 6,
+                                "endColumnIndex": 7
+                            },
+                            "cell": {"userEnteredFormat": {"horizontalAlignment": "RIGHT"}},
+                            "fields": "userEnteredFormat.horizontalAlignment"
+                        }
+                    })
+        
+        # 4. Форматирование числовых столбцов
+        numeric_columns = [7, 8, 9, 10, 13, 14] + list(range(16, 32))  # H, I, J, K, N, O, Q-AD
+        for col in numeric_columns:
             requests.append({
                 "repeatCell": {
                     "range": {
@@ -1427,12 +1306,12 @@ async def export_to_gsheet(date_range: DateRange):
                         "startColumnIndex": col,
                         "endColumnIndex": col + 1
                     },
-                    "cell": {"userEnteredFormat": {**NUMBER_FORMAT, **CELL_STYLE}},
-                    "fields": "userEnteredFormat"
+                    "cell": {"userEnteredFormat": NUMBER_FORMAT},
+                    "fields": "userEnteredFormat.numberFormat,userEnteredFormat.horizontalAlignment"
                 }
             })
         
-        # Форматирование дат (столбец B)
+        # 5. Форматирование дат
         requests.append({
             "repeatCell": {
                 "range": {
@@ -1442,59 +1321,70 @@ async def export_to_gsheet(date_range: DateRange):
                     "startColumnIndex": 1,
                     "endColumnIndex": 2
                 },
-                "cell": {"userEnteredFormat": {**DATE_FORMAT, **CELL_STYLE}},
+                "cell": {"userEnteredFormat": DATE_FORMAT},
                 "fields": "userEnteredFormat"
             }
         })
         
-        # Установка ширины столбцов
-        column_widths = [
-            {"pixelSize": 80},   # A: Номер
-            {"pixelSize": 150},  # B: Дата
-            {"pixelSize": 200},  # C: Контрагент
-            {"pixelSize": 150},  # D: Склад
-            {"pixelSize": 120},  # E: Проект
-            {"pixelSize": 120},  # F: Канал
-            {"pixelSize": 250},  # G: Товар
-            {"pixelSize": 80},   # H: Кол-во
-            {"pixelSize": 100},  # I: Цена
-            {"pixelSize": 100},  # J: Сумма
-            {"pixelSize": 120},  # K: Себестоимость
-            {"pixelSize": 100},  # L: Артикул
-            {"pixelSize": 80},   # M: Код
-            {"pixelSize": 100},  # N: Накладные
-            {"pixelSize": 100},  # O: Прибыль
-            {"pixelSize": 120},  # P: Акц. период
-            {"pixelSize": 100},  # Q: Доставка
-            {"pixelSize": 100},  # R: Адмидат
-            {"pixelSize": 100},  # S: ГдеСлон
-            {"pixelSize": 100},  # T: CityAds
-            {"pixelSize": 80},   # U: Ozon
-            {"pixelSize": 100},  # V: Ozon FBS
-            {"pixelSize": 120},  # W: Я.Маркет FBS
-            {"pixelSize": 120},  # X: Я.Маркет DBS
-            {"pixelSize": 100},  # Y: Я.Директ
-            {"pixelSize": 100},  # Z: Price ru
-            {"pixelSize": 120},  # AA: Wildberries
-            {"pixelSize": 80},   # AB: 2ГИС
-            {"pixelSize": 80},   # AC: SEO
-            {"pixelSize": 120},  # AD: Программатик
-            {"pixelSize": 80},   # AE: Авито
-            {"pixelSize": 120}   # AF: Примерная скидка
-        ]
-        
+        # 6. Подсветка отрицательной прибыли
         requests.append({
-            "updateDimensionProperties": {
-                "range": {
-                    "sheetId": worksheet_positions.id,
-                    "dimension": "COLUMNS",
-                    "startIndex": 0,
-                    "endIndex": 32
+            "addConditionalFormatRule": {
+                "rule": {
+                    "ranges": [{
+                        "sheetId": worksheet_positions.id,
+                        "startRowIndex": 1,
+                        "endRowIndex": last_row,
+                        "startColumnIndex": 14,
+                        "endColumnIndex": 15
+                    }],
+                    "booleanRule": {
+                        "condition": {
+                            "type": "NUMBER_LESS",
+                            "values": [{"userEnteredValue": "0"}]
+                        },
+                        "format": NEGATIVE_PROFIT_STYLE
+                    }
                 },
-                "properties": {"pixelSize": 100},  # Значение по умолчанию
-                "fields": "pixelSize"
+                "index": 0
             }
         })
+        
+        # 7. Установка ширины столбцов (как в Excel)
+        column_widths = [
+            {"pixelSize": 100},  # A: Номер отгрузки
+            {"pixelSize": 150},  # B: Дата
+            {"pixelSize": 200},  # C: Контрагент
+            {"pixelSize": 120},  # D: Склад
+            {"pixelSize": 120},  # E: Проект
+            {"pixelSize": 150},  # F: Канал продаж
+            {"pixelSize": 300},  # G: Товар
+            {"pixelSize": 90},   # H: Количество
+            {"pixelSize": 90},   # I: Цена
+            {"pixelSize": 90},   # J: Сумма
+            {"pixelSize": 110},  # K: Себестоимость
+            {"pixelSize": 100},  # L: Артикул
+            {"pixelSize": 80},   # M: Код
+            {"pixelSize": 110},  # N: Накладные расходы
+            {"pixelSize": 90},   # O: Прибыль
+            {"pixelSize": 120},  # P: Акционный период
+            {"pixelSize": 110},  # Q: Сумма доставки
+            {"pixelSize": 90},   # R: Адмидат
+            {"pixelSize": 90},   # S: ГдеСлон
+            {"pixelSize": 90},   # T: CityAds
+            {"pixelSize": 80},   # U: Ozon
+            {"pixelSize": 100},  # V: Ozon FBS
+            {"pixelSize": 130},  # W: Яндекс Маркет FBS
+            {"pixelSize": 130},  # X: Яндекс Маркет DBS
+            {"pixelSize": 110},  # Y: Яндекс Директ
+            {"pixelSize": 90},   # Z: Price ru
+            {"pixelSize": 110},  # AA: Wildberries
+            {"pixelSize": 80},   # AB: 2Gis
+            {"pixelSize": 80},   # AC: SEO
+            {"pixelSize": 110},  # AD: Программатик
+            {"pixelSize": 80},   # AE: Авито
+            {"pixelSize": 140},  # AF: Мультиканальные заказы
+            {"pixelSize": 120}   # AG: Примерная скидка
+        ]
         
         for i, width in enumerate(column_widths):
             requests.append({
@@ -1510,7 +1400,72 @@ async def export_to_gsheet(date_range: DateRange):
                 }
             })
         
-        # Фильтры и закрепление
+        # 8. Добавляем итоговую строку (как в Excel)
+        if positions:
+            # Формулы для суммирования
+            sum_formulas = [
+                "", "", "", "", "", "", "Общий итог:",
+                f'=SUM(H2:H{last_row})',
+                f'=AVERAGE(I2:I{last_row})',
+                f'=SUM(J2:J{last_row})',
+                f'=SUM(K2:K{last_row})',
+                "", "",
+                f'=SUM(N2:N{last_row})',
+                f'=SUM(O2:O{last_row})',
+                "",
+                f'=SUM(Q2:Q{last_row})',
+                f'=SUM(R2:R{last_row})',
+                f'=SUM(S2:S{last_row})',
+                f'=SUM(T2:T{last_row})',
+                f'=SUM(U2:U{last_row})',
+                f'=SUM(V2:V{last_row})',
+                f'=SUM(W2:W{last_row})',
+                f'=SUM(X2:X{last_row})',
+                f'=SUM(Y2:Y{last_row})',
+                f'=SUM(Z2:Z{last_row})',
+                f'=SUM(AA2:AA{last_row})',
+                f'=SUM(AB2:AB{last_row})',
+                f'=SUM(AC2:AC{last_row})',
+                f'=SUM(AD2:AD{last_row})',
+                f'=SUM(AE2:AE{last_row})',
+                f'=SUM(AF2:AF{last_row})',
+                f'=SUM(AG2:AG{last_row})'
+            ]
+            
+            worksheet_positions.append_row(sum_formulas)
+            
+            # Форматирование итоговой строки
+            requests.append({
+                "repeatCell": {
+                    "range": {
+                        "sheetId": worksheet_positions.id,
+                        "startRowIndex": last_row,
+                        "endRowIndex": last_row + 1
+                    },
+                    "cell": {"userEnteredFormat": TOTAL_ROW_STYLE},
+                    "fields": "userEnteredFormat"
+                }
+            })
+            
+            # Форматирование числовых ячеек в итоговой строке
+            for col in [7, 8, 9, 10, 13, 14] + list(range(16, 33)):
+                requests.append({
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": worksheet_positions.id,
+                            "startRowIndex": last_row,
+                            "endRowIndex": last_row + 1,
+                            "startColumnIndex": col,
+                            "endColumnIndex": col + 1
+                        },
+                        "cell": {"userEnteredFormat": NUMBER_FORMAT},
+                        "fields": "userEnteredFormat.numberFormat,userEnteredFormat.horizontalAlignment"
+                    }
+                })
+            
+            last_row += 1
+        
+        # 9. Фильтры и закрепление
         requests.extend([
             {
                 "setBasicFilter": {
@@ -1520,7 +1475,7 @@ async def export_to_gsheet(date_range: DateRange):
                             "startRowIndex": 0,
                             "endRowIndex": last_row,
                             "startColumnIndex": 0,
-                            "endColumnIndex": 32
+                            "endColumnIndex": 33
                         }
                     }
                 }
@@ -1536,17 +1491,272 @@ async def export_to_gsheet(date_range: DateRange):
             }
         ])
         
+        # ===== 2. ЛИСТ С ОТГРУЗКАМИ (как второй лист в Excel) =====
+        worksheet_demands = sh.add_worksheet(title="Отчет по отгрузкам", rows=1000, cols=28)
+        
+        # Получаем данные
+        cur.execute("""
+            SELECT 
+                number, date::text, counterparty, store, project, sales_channel,
+                amount::float, cost_price::float, overhead::float, profit::float, 
+                promo_period, delivery_amount::float, admin_data::float,
+                gdeslon::float, cityads::float, ozon::float, ozon_fbs::float,
+                yamarket_fbs::float, yamarket_dbs::float, yandex_direct::float,
+                price_ru::float, wildberries::float, gis2::float, seo::float,
+                programmatic::float, avito::float, multiorders::float,
+                estimated_discount::float
+            FROM demands
+            WHERE date BETWEEN %s AND %s
+            ORDER BY date DESC
+        """, (date_range.start_date, date_range.end_date))
+        
+        demands = cur.fetchall()
+        conn.close()
+        
+        # Заголовки (как в Excel)
+        demands_headers = [
+            "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
+            "Сумма", "Себестоимость", "Накладные расходы", "Прибыль", "Акционный период",
+            "Сумма доставки", "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS",
+            "Яндекс Маркет FBS", "Яндекс Маркет DBS", "Яндекс Директ", "Price ru",
+            "Wildberries", "2Gis", "SEO", "Программатик", "Авито", "Мультиканальные заказы",
+            "Примерная скидка"
+        ]
+        
+        # Добавляем заголовки и данные
+        worksheet_demands.append_row(demands_headers)
+        if demands:
+            worksheet_demands.append_rows([list(row) for row in demands])
+        
+        # Форматируем лист с отгрузками
+        last_demand_row = len(demands) + 1 if demands else 1
+        demand_requests = []
+        
+        # 1. Форматирование заголовков
+        demand_requests.append({
+            "repeatCell": {
+                "range": {
+                    "sheetId": worksheet_demands.id,
+                    "startRowIndex": 0,
+                    "endRowIndex": 1
+                },
+                "cell": {"userEnteredFormat": HEADER_STYLE},
+                "fields": "userEnteredFormat"
+            }
+        })
+        
+        # 2. Форматирование данных
+        demand_requests.append({
+            "repeatCell": {
+                "range": {
+                    "sheetId": worksheet_demands.id,
+                    "startRowIndex": 1,
+                    "endRowIndex": last_demand_row
+                },
+                "cell": {"userEnteredFormat": PRODUCT_ROW_STYLE},
+                "fields": "userEnteredFormat"
+            }
+        })
+        
+        # 3. Форматирование числовых столбцов
+        numeric_demand_columns = [6, 7, 8, 9, 11] + list(range(12, 28))  # G, H, I, J, L-AB
+        for col in numeric_demand_columns:
+            demand_requests.append({
+                "repeatCell": {
+                    "range": {
+                        "sheetId": worksheet_demands.id,
+                        "startRowIndex": 1,
+                        "endRowIndex": last_demand_row,
+                        "startColumnIndex": col,
+                        "endColumnIndex": col + 1
+                    },
+                    "cell": {"userEnteredFormat": NUMBER_FORMAT},
+                    "fields": "userEnteredFormat.numberFormat,userEnteredFormat.horizontalAlignment"
+                }
+            })
+        
+        # 4. Форматирование дат
+        demand_requests.append({
+            "repeatCell": {
+                "range": {
+                    "sheetId": worksheet_demands.id,
+                    "startRowIndex": 1,
+                    "endRowIndex": last_demand_row,
+                    "startColumnIndex": 1,
+                    "endColumnIndex": 2
+                },
+                "cell": {"userEnteredFormat": DATE_FORMAT},
+                "fields": "userEnteredFormat"
+            }
+        })
+        
+        # 5. Подсветка отрицательной прибыли
+        demand_requests.append({
+            "addConditionalFormatRule": {
+                "rule": {
+                    "ranges": [{
+                        "sheetId": worksheet_demands.id,
+                        "startRowIndex": 1,
+                        "endRowIndex": last_demand_row,
+                        "startColumnIndex": 9,
+                        "endColumnIndex": 10
+                    }],
+                    "booleanRule": {
+                        "condition": {
+                            "type": "NUMBER_LESS",
+                            "values": [{"userEnteredValue": "0"}]
+                        },
+                        "format": NEGATIVE_PROFIT_STYLE
+                    }
+                },
+                "index": 0
+            }
+        })
+        
+        # 6. Добавляем итоговую строку
+        if demands:
+            # Формулы для суммирования
+            sum_formulas = [
+                "Итого:", "", "", "", "", "",
+                f'=SUM(G2:G{last_demand_row})',
+                f'=SUM(H2:H{last_demand_row})',
+                f'=SUM(I2:I{last_demand_row})',
+                f'=SUM(J2:J{last_demand_row})',
+                "",
+                f'=SUM(L2:L{last_demand_row})',
+                f'=SUM(M2:M{last_demand_row})',
+                f'=SUM(N2:N{last_demand_row})',
+                f'=SUM(O2:O{last_demand_row})',
+                f'=SUM(P2:P{last_demand_row})',
+                f'=SUM(Q2:Q{last_demand_row})',
+                f'=SUM(R2:R{last_demand_row})',
+                f'=SUM(S2:S{last_demand_row})',
+                f'=SUM(T2:T{last_demand_row})',
+                f'=SUM(U2:U{last_demand_row})',
+                f'=SUM(V2:V{last_demand_row})',
+                f'=SUM(W2:W{last_demand_row})',
+                f'=SUM(X2:X{last_demand_row})',
+                f'=SUM(Y2:Y{last_demand_row})',
+                f'=SUM(Z2:Z{last_demand_row})',
+                f'=SUM(AA2:AA{last_demand_row})',
+                f'=SUM(AB2:AB{last_demand_row})'
+            ]
+            
+            worksheet_demands.append_row(sum_formulas)
+            
+            # Форматирование итоговой строки
+            demand_requests.append({
+                "repeatCell": {
+                    "range": {
+                        "sheetId": worksheet_demands.id,
+                        "startRowIndex": last_demand_row,
+                        "endRowIndex": last_demand_row + 1
+                    },
+                    "cell": {"userEnteredFormat": TOTAL_ROW_STYLE},
+                    "fields": "userEnteredFormat"
+                }
+            })
+            
+            # Форматирование числовых ячеек в итоговой строке
+            for col in numeric_demand_columns:
+                demand_requests.append({
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": worksheet_demands.id,
+                            "startRowIndex": last_demand_row,
+                            "endRowIndex": last_demand_row + 1,
+                            "startColumnIndex": col,
+                            "endColumnIndex": col + 1
+                        },
+                        "cell": {"userEnteredFormat": NUMBER_FORMAT},
+                        "fields": "userEnteredFormat.numberFormat,userEnteredFormat.horizontalAlignment"
+                    }
+                })
+            
+            last_demand_row += 1
+        
+        # 7. Установка ширины столбцов
+        demand_column_widths = [
+            {"pixelSize": 100},  # A: Номер отгрузки
+            {"pixelSize": 150},  # B: Дата
+            {"pixelSize": 200},  # C: Контрагент
+            {"pixelSize": 120},  # D: Склад
+            {"pixelSize": 120},  # E: Проект
+            {"pixelSize": 150},  # F: Канал продаж
+            {"pixelSize": 90},   # G: Сумма
+            {"pixelSize": 110},  # H: Себестоимость
+            {"pixelSize": 110},  # I: Накладные расходы
+            {"pixelSize": 90},   # J: Прибыль
+            {"pixelSize": 120},  # K: Акционный период
+            {"pixelSize": 110},  # L: Сумма доставки
+            {"pixelSize": 90},   # M: Адмидат
+            {"pixelSize": 90},   # N: ГдеСлон
+            {"pixelSize": 90},   # O: CityAds
+            {"pixelSize": 80},   # P: Ozon
+            {"pixelSize": 100},  # Q: Ozon FBS
+            {"pixelSize": 130},  # R: Яндекс Маркет FBS
+            {"pixelSize": 130},  # S: Яндекс Маркет DBS
+            {"pixelSize": 110},  # T: Яндекс Директ
+            {"pixelSize": 90},   # U: Price ru
+            {"pixelSize": 110},  # V: Wildberries
+            {"pixelSize": 80},   # W: 2Gis
+            {"pixelSize": 80},   # X: SEO
+            {"pixelSize": 110},  # Y: Программатик
+            {"pixelSize": 80},   # Z: Авито
+            {"pixelSize": 140},  # AA: Мультиканальные заказы
+            {"pixelSize": 120}   # AB: Примерная скидка
+        ]
+        
+        for i, width in enumerate(demand_column_widths):
+            demand_requests.append({
+                "updateDimensionProperties": {
+                    "range": {
+                        "sheetId": worksheet_demands.id,
+                        "dimension": "COLUMNS",
+                        "startIndex": i,
+                        "endIndex": i + 1
+                    },
+                    "properties": width,
+                    "fields": "pixelSize"
+                }
+            })
+        
+        # 8. Фильтры и закрепление
+        demand_requests.extend([
+            {
+                "setBasicFilter": {
+                    "filter": {
+                        "range": {
+                            "sheetId": worksheet_demands.id,
+                            "startRowIndex": 0,
+                            "endRowIndex": last_demand_row,
+                            "startColumnIndex": 0,
+                            "endColumnIndex": 28
+                        }
+                    }
+                }
+            },
+            {
+                "updateSheetProperties": {
+                    "properties": {
+                        "sheetId": worksheet_demands.id,
+                        "gridProperties": {"frozenRowCount": 1}
+                    },
+                    "fields": "gridProperties.frozenRowCount"
+                }
+            }
+        ])
+        
+        # Объединяем все запросы
+        all_requests = requests + demand_requests
+        
         # Применяем все запросы
-        sh.batch_update({"requests": requests})
+        sh.batch_update({"requests": all_requests})
         
-        # Удаляем пустой лист
-        if len(sh.worksheets()) > 2:
-            try:
-                sh.del_worksheet(sh.get_worksheet(2))
-            except:
-                pass
+        # Устанавливаем порядок листов (товары первыми)
+        sh.reorder_worksheets([worksheet_positions, worksheet_demands])
         
-        logger.info(f"Красиво оформленная таблица создана: {sh.url}")
+        logger.info(f"Таблица создана с оформлением как в Excel: {sh.url}")
         return {"url": sh.url}
         
     except Exception as e:
@@ -1555,27 +1765,3 @@ async def export_to_gsheet(date_range: DateRange):
             status_code=500,
             content={"detail": f"Ошибка при создании таблицы: {str(e)}"}
         )
-
-@app.get("/api/task-stream/{task_id}")
-async def stream_task_status(task_id: str):
-    """Stream task status updates using Server-Sent Events (SSE)"""
-    async def event_stream():
-        last_status = None
-        while True:
-            current_status = tasks_status.get(task_id, {
-                "status": "not_found",
-                "message": "Task not found"
-            })
-            
-            # Send update only if status changed
-            if current_status != last_status:
-                yield f"data: {json.dumps(current_status, cls=DecimalEncoder)}\n\n"
-                last_status = current_status
-                
-                # Stop if task is completed or failed
-                if current_status["status"] in ["completed", "failed"]:
-                    break
-            
-            await asyncio.sleep(1)  # Check every second
-    
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
