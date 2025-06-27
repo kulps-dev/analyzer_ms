@@ -200,3 +200,42 @@ document.addEventListener('DOMContentLoaded', function() {
         }, 2000);
     }
 });
+
+// Пример кода для клиента (должен быть в вашем фронтенде)
+async function exportToSheets(dateRange) {
+    const response = await fetch('/api/export/gsheet', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(dateRange)
+    });
+    
+    const result = await response.json();
+    const taskId = result.task_id;
+    
+    // Подключаемся к SSE потоку
+    const eventSource = new EventSource(`/api/task-stream/${taskId}`);
+    
+    eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        console.log('Status update:', data);
+        
+        if (data.status === 'completed') {
+            // Закрываем соединение
+            eventSource.close();
+            
+            // Показываем ссылку и обновляем страницу
+            alert(`Таблица создана: ${data.url}`);
+            window.location.reload();
+        } else if (data.status === 'failed') {
+            eventSource.close();
+            alert(`Ошибка: ${data.message}`);
+        }
+    };
+    
+    eventSource.onerror = () => {
+        eventSource.close();
+        alert('Соединение прервано');
+    };
+}

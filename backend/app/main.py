@@ -21,6 +21,8 @@ from fastapi.responses import JSONResponse
 from datetime import datetime
 from decimal import Decimal
 import json
+from fastapi import Response
+from fastapi.responses import StreamingResponse
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO)
@@ -1553,3 +1555,27 @@ async def export_to_gsheet(date_range: DateRange):
             status_code=500,
             content={"detail": f"Ошибка при создании таблицы: {str(e)}"}
         )
+
+@app.get("/api/task-stream/{task_id}")
+async def stream_task_status(task_id: str):
+    """Stream task status updates using Server-Sent Events (SSE)"""
+    async def event_stream():
+        last_status = None
+        while True:
+            current_status = tasks_status.get(task_id, {
+                "status": "not_found",
+                "message": "Task not found"
+            })
+            
+            # Send update only if status changed
+            if current_status != last_status:
+                yield f"data: {json.dumps(current_status, cls=DecimalEncoder)}\n\n"
+                last_status = current_status
+                
+                # Stop if task is completed or failed
+                if current_status["status"] in ["completed", "failed"]:
+                    break
+            
+            await asyncio.sleep(1)  # Check every second
+    
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
