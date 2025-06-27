@@ -1267,7 +1267,7 @@ async def export_to_gsheet(date_range: DateRange):
                                 row[19], row[20], row[21], row[22], row[23], row[24],
                                 row[25], row[26], row[27], row[28], row[29], row[30],
                                 row[31]
-                            )
+                            ])
                         
                         rows_to_add.append([
                             "", "", "", "", "", "",
