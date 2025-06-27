@@ -1072,9 +1072,8 @@ class DecimalEncoder(json.JSONEncoder):
 @app.post("/api/export/gsheet")
 async def export_to_gsheet(date_range: DateRange):
     try:
-        logger.info("Начало экспорта в Google Таблицу...")
+        logger.info("Создание Google Таблицы с улучшенным оформлением...")
         
-        # Проверка учетных данных
         if not os.path.exists(GOOGLE_CREDS_PATH):
             logger.error("Файл учетных данных не найден!")
             return JSONResponse(
@@ -1082,256 +1081,251 @@ async def export_to_gsheet(date_range: DateRange):
                 content={"detail": "Файл учетных данных Google не найден"}
             )
 
-        # Инициализация Google Sheets API
         gc = gspread.service_account(filename=GOOGLE_CREDS_PATH)
-        
-        # Создаем новую таблицу
         title = f"Отчет по отгрузкам {date_range.start_date} - {date_range.end_date}"
-        try:
-            sh = gc.create(title)
-            # Даем доступ на редактирование всем
-            sh.share(None, perm_type='anyone', role='writer')
-        except Exception as e:
-            logger.error(f"Ошибка при создании таблицы: {str(e)}")
-            return JSONResponse(
-                status_code=500,
-                content={"detail": f"Ошибка при создании таблицы: {str(e)}"}
+        sh = gc.create(title)
+        sh.share(None, perm_type='anyone', role='writer')
+
+        # Стили оформления
+        HEADER_STYLE = {
+            "backgroundColor": {"red": 0.13, "green": 0.38, "blue": 0.58},
+            "textFormat": {"bold": True, "fontSize": 11, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
+            "horizontalAlignment": "CENTER",
+            "verticalAlignment": "MIDDLE",
+            "wrapStrategy": "WRAP",
+            "borders": {
+                "top": {"style": "SOLID", "width": 1, "color": {"red": 0, "green": 0, "blue": 0}},
+                "bottom": {"style": "SOLID", "width": 1, "color": {"red": 0, "green": 0, "blue": 0}},
+                "left": {"style": "SOLID", "width": 1, "color": {"red": 0, "green": 0, "blue": 0}},
+                "right": {"style": "SOLID", "width": 1, "color": {"red": 0, "green": 0, "blue": 0}}
+            }
+        }
+
+        CELL_STYLE = {
+            "borders": {
+                "top": {"style": "SOLID", "width": 1, "color": {"red": 0.8, "green": 0.8, "blue": 0.8}},
+                "bottom": {"style": "SOLID", "width": 1, "color": {"red": 0.8, "green": 0.8, "blue": 0.8}},
+                "left": {"style": "SOLID", "width": 1, "color": {"red": 0.8, "green": 0.8, "blue": 0.8}},
+                "right": {"style": "SOLID", "width": 1, "color": {"red": 0.8, "green": 0.8, "blue": 0.8}}
+            },
+            "wrapStrategy": "WRAP"
+        }
+
+        NUMBER_FORMAT = {
+            "numberFormat": {"type": "NUMBER", "pattern": "#,##0.00"},
+            "horizontalAlignment": "RIGHT"
+        }
+
+        DATE_FORMAT = {
+            "numberFormat": {"type": "DATE", "pattern": "dd.mm.yyyy hh:mm"},
+            "horizontalAlignment": "CENTER"
+        }
+
+        # ===== 1. ЛИСТ С ОТГРУЗКАМИ =====
+        worksheet_demands = sh.get_worksheet(0)
+        worksheet_demands.update_title("Отгрузки")
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Получаем данные
+        cur.execute("""
+            SELECT 
+                number, date::text, counterparty, store, project, sales_channel,
+                amount::float, cost_price::float, overhead::float, profit::float, 
+                promo_period, delivery_amount::float, admin_data::float,
+                gdeslon::float, cityads::float, ozon::float, ozon_fbs::float,
+                yamarket_fbs::float, yamarket_dbs::float, yandex_direct::float,
+                price_ru::float, wildberries::float, gis2::float, seo::float,
+                programmatic::float, avito::float, multiorders::float,
+                estimated_discount::float, status, comment
+            FROM demands
+            WHERE date BETWEEN %s AND %s
+            ORDER BY date DESC
+        """, (date_range.start_date, date_range.end_date))
+        
+        demands = cur.fetchall()
+        
+        # Заголовки с оптимальной шириной
+        demands_headers = [
+            ("Номер", 80), ("Дата", 150), ("Контрагент", 200), ("Склад", 150), 
+            ("Проект", 120), ("Канал продаж", 150), ("Сумма", 100), 
+            ("Себестоимость", 120), ("Накладные", 100), ("Прибыль", 100),
+            ("Акц. период", 120), ("Доставка", 100), ("Адмидат", 100),
+            ("ГдеСлон", 100), ("CityAds", 100), ("Ozon", 80), ("Ozon FBS", 100),
+            ("Я.Маркет FBS", 120), ("Я.Маркет DBS", 120), ("Я.Директ", 100),
+            ("Price ru", 100), ("Wildberries", 120), ("2ГИС", 80), ("SEO", 80),
+            ("Программатик", 120), ("Авито", 80), ("Мультизаказы", 120),
+            ("Примерная скидка", 120), ("Статус", 100), ("Комментарий", 200)
+        ]
+        
+        # Добавляем заголовки
+        worksheet_demands.append_row([h[0] for h in demands_headers])
+        
+        # Устанавливаем ширину столбцов
+        for i, (_, width) in enumerate(demands_headers, 1):
+            worksheet_demands.update_column_properties(
+                i,
+                {"pixelSize": width}
             )
         
-        # Получаем данные из БД
-        conn = None
-        try:
-            conn = get_db_connection()
-            cur = conn.cursor()
-            
-            # ===== 1. ЛИСТ С ОТГРУЗКАМИ =====
-            worksheet_demands = sh.get_worksheet(0)
-            worksheet_demands.update_title("Отгрузки")
-            
-            # Получаем данные отгрузок
-            cur.execute("""
-                SELECT 
-                    number, 
-                    to_char(date, 'DD.MM.YYYY HH24:MI') as date,
-                    counterparty, 
-                    store, 
-                    project, 
-                    sales_channel,
-                    amount::float, 
-                    cost_price::float, 
-                    overhead::float, 
-                    profit::float, 
-                    promo_period,
-                    delivery_amount::float,
-                    admin_data::float,
-                    gdeslon::float,
-                    cityads::float,
-                    ozon::float,
-                    ozon_fbs::float,
-                    yamarket_fbs::float,
-                    yamarket_dbs::float,
-                    yandex_direct::float,
-                    price_ru::float,
-                    wildberries::float,
-                    gis2::float,
-                    seo::float,
-                    programmatic::float,
-                    avito::float,
-                    multiorders::float,
-                    estimated_discount::float,
-                    status, 
-                    comment
-                FROM demands
-                WHERE date BETWEEN %s AND %s
-                ORDER BY date DESC
-            """, (date_range.start_date, date_range.end_date))
-            
-            demands = cur.fetchall()
-            
-            # Заголовки для листа отгрузок
-            headers = [
-                "Номер", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
-                "Сумма", "Себестоимость", "Накладные", "Прибыль", "Акционный период",
-                "Сумма доставки", "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS",
-                "Я.Маркет FBS", "Я.Маркет DBS", "Я.Директ", "Price ru", "Wildberries",
-                "2ГИС", "SEO", "Программатик", "Авито", "Мультизаказы", "Примерная скидка",
-                "Статус", "Комментарий"
-            ]
-            
-            # Добавляем заголовки и данные
-            worksheet_demands.append_row(headers)
-            if demands:
-                worksheet_demands.append_rows([list(row) for row in demands])
-            
-            # Форматирование заголовков
-            worksheet_demands.format("A1:AD1", {
-                "backgroundColor": {"red": 0.2, "green": 0.5, "blue": 0.8},
-                "horizontalAlignment": "CENTER",
-                "textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}}
-            })
-            
-            # Форматирование числовых столбцов
-            worksheet_demands.format("G2:AD1000", {
-                "numberFormat": {"type": "NUMBER", "pattern": "#,##0.00"},
-                "horizontalAlignment": "RIGHT"
-            })
-            
-            # Форматирование дат
-            worksheet_demands.format("B2:B1000", {
-                "numberFormat": {"type": "DATE", "pattern": "dd.mm.yyyy hh:mm"},
-                "horizontalAlignment": "CENTER"
-            })
-            
-            # Автоподбор ширины столбцов (правильный метод)
-            worksheet_demands.columns_auto_resize(0, 30)
-            
-            # Добавляем фильтры и закрепляем строку
-            worksheet_demands.set_basic_filter(1, 1, worksheet_demands.row_count, worksheet_demands.col_count)
-            worksheet_demands.freeze(rows=1)
-            
-            # ===== 2. ЛИСТ С ТОВАРАМИ =====
-            try:
-                worksheet_positions = sh.add_worksheet(title="Товары", rows=1000, cols=30)
-                
-                # Получаем данные позиций
-                cur.execute("""
-                    SELECT 
-                        d.number as demand_number, 
-                        to_char(d.date, 'DD.MM.YYYY HH24:MI') as date,
-                        d.counterparty, 
-                        d.store, 
-                        d.project, 
-                        d.sales_channel,
-                        dp.product_name, 
-                        dp.quantity::float, 
-                        dp.price::float, 
-                        dp.amount::float, 
-                        dp.cost_price::float,
-                        dp.article, 
-                        dp.code,
-                        dp.overhead::float, 
-                        dp.profit::float, 
-                        d.promo_period, 
-                        d.delivery_amount::float, 
-                        d.admin_data::float, 
-                        d.gdeslon::float,
-                        d.cityads::float, 
-                        d.ozon::float, 
-                        d.ozon_fbs::float, 
-                        d.yamarket_fbs::float, 
-                        d.yamarket_dbs::float, 
-                        d.yandex_direct::float,
-                        d.price_ru::float, 
-                        d.wildberries::float, 
-                        d.gis2::float, 
-                        d.seo::float, 
-                        d.programmatic::float, 
-                        d.avito::float, 
-                        d.multiorders::float,
-                        d.estimated_discount::float
-                    FROM demand_positions dp
-                    JOIN demands d ON dp.demand_id = d.id
-                    WHERE d.date BETWEEN %s AND %s
-                    ORDER BY d.number, d.date DESC
-                """, (date_range.start_date, date_range.end_date))
-                
-                positions = cur.fetchall()
-                
-                # Заголовки для листа товаров
-                pos_headers = [
-                    "Номер", "Дата", "Контрагент", "Склад", "Проект", "Канал",
-                    "Товар", "Кол-во", "Цена", "Сумма", "Себестоимость", "Артикул", "Код",
-                    "Накладные", "Прибыль", "Акц. период", "Доставка", "Адмидат",
-                    "ГдеСлон", "CityAds", "Ozon", "Ozon FBS", "Я.Маркет FBS", "Я.Маркет DBS",
-                    "Я.Директ", "Price ru", "Wildberries", "2ГИС", "SEO", "Программатик", "Авито",
-                    "Мультизаказы", "Примерная скидка"
-                ]
-                
-                # Добавляем заголовки
-                worksheet_positions.append_row(pos_headers)
-                
-                # Добавляем данные с группировкой по отгрузкам
-                if positions:
-                    current_demand = None
-                    rows_to_add = []
-                    
-                    for row in positions:
-                        demand_number = row[0]
-                        
-                        if demand_number != current_demand:
-                            current_demand = demand_number
-                            # Добавляем строку с итогами по отгрузке
-                            rows_to_add.append([
-                                demand_number, row[1], row[2], row[3], row[4], row[5],
-                                "ИТОГО ПО ОТГРУЗКЕ", "", "", row[9], row[10], "", "",
-                                row[13], row[14], row[15], row[16], row[17], row[18],
-                                row[19], row[20], row[21], row[22], row[23], row[24],
-                                row[25], row[26], row[27], row[28], row[29], row[30],
-                                row[31]
-                            ])
-                        
-                        # Добавляем позицию товара
-                        rows_to_add.append([
-                            "", "", "", "", "", "",
-                            row[6], row[7], row[8], row[9], row[10], row[11], row[12],
-                            "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""
-                        ])
-                    
-                    worksheet_positions.append_rows(rows_to_add)
-                
-                # Форматирование заголовков
-                worksheet_positions.format("A1:AF1", {
-                    "backgroundColor": {"red": 0.2, "green": 0.6, "blue": 0.2},
-                    "horizontalAlignment": "CENTER",
-                    "textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}}
-                })
-                
-                # Форматирование числовых столбцов
-                worksheet_positions.format("G2:AF1000", {
-                    "numberFormat": {"type": "NUMBER", "pattern": "#,##0.00"},
-                    "horizontalAlignment": "RIGHT"
-                })
-                
-                # Форматирование дат
-                worksheet_positions.format("B2:B1000", {
-                    "numberFormat": {"type": "DATE", "pattern": "dd.mm.yyyy hh:mm"},
-                    "horizontalAlignment": "CENTER"
-                })
-                
-                # Автоподбор ширины столбцов
-                worksheet_positions.columns_auto_resize(0, 32)
-                
-                # Добавляем фильтры и закрепляем строку
-                worksheet_positions.set_basic_filter(1, 1, worksheet_positions.row_count, worksheet_positions.col_count)
-                worksheet_positions.freeze(rows=1)
-                
-            except Exception as e:
-                logger.error(f"Ошибка при создании листа с товарами: {str(e)}")
-                # Продолжаем работу, даже если не удалось создать лист с товарами
-            
-            # Удаляем пустой лист по умолчанию
-            if len(sh.worksheets()) > 2:
-                try:
-                    sh.del_worksheet(sh.get_worksheet(2))
-                except:
-                    pass
-            
-            logger.info(f"Таблица успешно создана: {sh.url}")
-            return {"url": sh.url}
-            
-        except Exception as e:
-            logger.error(f"Ошибка при работе с БД: {str(e)}")
-            return JSONResponse(
-                status_code=500,
-                content={"detail": f"Ошибка при работе с БД: {str(e)}"}
+        # Добавляем данные
+        if demands:
+            worksheet_demands.append_rows([list(row) for row in demands])
+        
+        # Форматируем весь лист
+        worksheet_demands.format(
+            "A1:AD{}".format(len(demands) + 1 if demands else 1),
+            {
+                **CELL_STYLE,
+                "horizontalAlignment": "LEFT",
+                "verticalAlignment": "MIDDLE"
+            }
+        )
+        
+        # Специальное форматирование для заголовков
+        worksheet_demands.format("A1:AD1", HEADER_STYLE)
+        
+        # Форматирование числовых столбцов
+        for col in ["G", "H", "I", "J", "L", "M", "N", "O", "P", "Q", 
+                   "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "AA", "AB"]:
+            worksheet_demands.format(
+                f"{col}2:{col}{len(demands)+1 if demands else 1}",
+                {**NUMBER_FORMAT, **CELL_STYLE}
             )
-        finally:
-            if conn:
-                conn.close()
+        
+        # Форматирование дат
+        worksheet_demands.format(
+            f"B2:B{len(demands)+1 if demands else 1}",
+            {**DATE_FORMAT, **CELL_STYLE}
+        )
+        
+        # Фильтры и закрепление
+        worksheet_demands.set_basic_filter(1, 1, worksheet_demands.row_count, worksheet_demands.col_count)
+        worksheet_demands.freeze(rows=1)
+        
+        # ===== 2. ЛИСТ С ТОВАРАМИ =====
+        worksheet_positions = sh.add_worksheet(title="Товары", rows=1000, cols=32)
+        
+        # Получаем данные
+        cur.execute("""
+            SELECT 
+                d.number, d.date::text, d.counterparty, d.store, d.project, d.sales_channel,
+                dp.product_name, dp.quantity::float, dp.price::float, dp.amount::float, 
+                dp.cost_price::float, dp.article, dp.code, dp.overhead::float, dp.profit::float,
+                d.promo_period, d.delivery_amount::float, d.admin_data::float,
+                d.gdeslon::float, d.cityads::float, d.ozon::float, d.ozon_fbs::float,
+                d.yamarket_fbs::float, d.yamarket_dbs::float, d.yandex_direct::float,
+                d.price_ru::float, d.wildberries::float, d.gis2::float, d.seo::float,
+                d.programmatic::float, d.avito::float, d.multiorders::float,
+                d.estimated_discount::float
+            FROM demand_positions dp
+            JOIN demands d ON dp.demand_id = d.id
+            WHERE d.date BETWEEN %s AND %s
+            ORDER BY d.number, d.date DESC
+        """, (date_range.start_date, date_range.end_date))
+        
+        positions = cur.fetchall()
+        conn.close()
+        
+        # Заголовки с оптимальной шириной
+        pos_headers = [
+            ("Номер", 80), ("Дата", 150), ("Контрагент", 200), ("Склад", 150), 
+            ("Проект", 120), ("Канал", 120), ("Товар", 250), ("Кол-во", 80), 
+            ("Цена", 100), ("Сумма", 100), ("Себестоимость", 120), ("Артикул", 100), 
+            ("Код", 80), ("Накладные", 100), ("Прибыль", 100), ("Акц. период", 120),
+            ("Доставка", 100), ("Адмидат", 100), ("ГдеСлон", 100), ("CityAds", 100),
+            ("Ozon", 80), ("Ozon FBS", 100), ("Я.Маркет FBS", 120), ("Я.Маркет DBS", 120),
+            ("Я.Директ", 100), ("Price ru", 100), ("Wildberries", 120), ("2ГИС", 80),
+            ("SEO", 80), ("Программатик", 120), ("Авито", 80), ("Мультизаказы", 120),
+            ("Примерная скидка", 120)
+        ]
+        
+        # Добавляем заголовки
+        worksheet_positions.append_row([h[0] for h in pos_headers])
+        
+        # Устанавливаем ширину столбцов
+        for i, (_, width) in enumerate(pos_headers, 1):
+            worksheet_positions.update_column_properties(
+                i,
+                {"pixelSize": width}
+            )
+        
+        # Добавляем данные с группировкой
+        if positions:
+            current_demand = None
+            rows_to_add = []
+            
+            for row in positions:
+                demand_number = row[0]
                 
+                if demand_number != current_demand:
+                    current_demand = demand_number
+                    rows_to_add.append([
+                        demand_number, row[1], row[2], row[3], row[4], row[5],
+                        "ИТОГО ПО ОТГРУЗКЕ", "", "", row[9], row[10], "", "",
+                        row[13], row[14], row[15], row[16], row[17], row[18],
+                        row[19], row[20], row[21], row[22], row[23], row[24],
+                        row[25], row[26], row[27], row[28], row[29], row[30],
+                        row[31]
+                    ])
+                
+                rows_to_add.append([
+                    "", "", "", "", "", "",
+                    row[6], row[7], row[8], row[9], row[10], row[11], row[12],
+                    "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""
+                ])
+            
+            worksheet_positions.append_rows(rows_to_add)
+        
+        # Форматируем весь лист
+        last_row = len(positions)*2 + 1 if positions else 1
+        worksheet_positions.format(
+            f"A1:AF{last_row}",
+            {
+                **CELL_STYLE,
+                "horizontalAlignment": "LEFT",
+                "verticalAlignment": "MIDDLE"
+            }
+        )
+        
+        # Специальное форматирование для заголовков
+        worksheet_positions.format("A1:AF1", {
+            **HEADER_STYLE,
+            "backgroundColor": {"red": 0.23, "green": 0.52, "blue": 0.23}
+        })
+        
+        # Форматирование числовых столбцов
+        for col in ["H", "I", "J", "K", "N", "O", "Q", "R", "S", "T", 
+                   "U", "V", "W", "X", "Y", "Z", "AA", "AB", "AC", "AD", "AE"]:
+            worksheet_positions.format(
+                f"{col}2:{col}{last_row}",
+                {**NUMBER_FORMAT, **CELL_STYLE}
+            )
+        
+        # Форматирование дат
+        worksheet_positions.format(
+            f"B2:B{last_row}",
+            {**DATE_FORMAT, **CELL_STYLE}
+        )
+        
+        # Фильтры и закрепление
+        worksheet_positions.set_basic_filter(1, 1, worksheet_positions.row_count, worksheet_positions.col_count)
+        worksheet_positions.freeze(rows=1)
+        
+        # Удаляем пустой лист
+        if len(sh.worksheets()) > 2:
+            try:
+                sh.del_worksheet(sh.get_worksheet(2))
+            except:
+                pass
+        
+        logger.info(f"Красиво оформленная таблица создана: {sh.url}")
+        return {"url": sh.url}
+        
     except Exception as e:
-        logger.error(f"Критическая ошибка при экспорте: {str(e)}")
+        logger.error(f"Ошибка при создании таблицы: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={"detail": f"Критическая ошибка при экспорте: {str(e)}"}
+            content={"detail": f"Ошибка при создании таблицы: {str(e)}"}
         )
