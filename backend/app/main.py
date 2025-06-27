@@ -1089,21 +1089,13 @@ async def export_to_gsheet(date_range: DateRange):
         title = f"Отчет по отгрузкам {date_range.start_date} - {date_range.end_date}"
         try:
             sh = gc.create(title)
+            # Даем доступ на редактирование всем
+            sh.share(None, perm_type='anyone', role='writer')
         except Exception as e:
             logger.error(f"Ошибка при создании таблицы: {str(e)}")
             return JSONResponse(
                 status_code=500,
                 content={"detail": f"Ошибка при создании таблицы: {str(e)}"}
-            )
-        
-        # Настройки доступа
-        try:
-            sh.share(None, perm_type='anyone', role='writer')
-        except Exception as e:
-            logger.error(f"Ошибка при настройке доступа: {str(e)}")
-            return JSONResponse(
-                status_code=500,
-                content={"detail": f"Ошибка при настройке доступа: {str(e)}"}
             )
         
         # Получаем данные из БД
@@ -1116,7 +1108,7 @@ async def export_to_gsheet(date_range: DateRange):
             worksheet_demands = sh.get_worksheet(0)
             worksheet_demands.update_title("Отгрузки")
             
-            # Получаем данные
+            # Получаем данные отгрузок
             cur.execute("""
                 SELECT 
                     number, 
@@ -1156,7 +1148,7 @@ async def export_to_gsheet(date_range: DateRange):
             
             demands = cur.fetchall()
             
-            # Заголовки
+            # Заголовки для листа отгрузок
             headers = [
                 "Номер", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
                 "Сумма", "Себестоимость", "Накладные", "Прибыль", "Акционный период",
@@ -1166,36 +1158,42 @@ async def export_to_gsheet(date_range: DateRange):
                 "Статус", "Комментарий"
             ]
             
-            # Добавляем данные
+            # Добавляем заголовки и данные
             worksheet_demands.append_row(headers)
             if demands:
                 worksheet_demands.append_rows([list(row) for row in demands])
             
-            # Форматирование
+            # Форматирование заголовков
             worksheet_demands.format("A1:AD1", {
                 "backgroundColor": {"red": 0.2, "green": 0.5, "blue": 0.8},
                 "horizontalAlignment": "CENTER",
                 "textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}}
             })
             
-            # Числовые форматы
+            # Форматирование числовых столбцов
             worksheet_demands.format("G2:AD1000", {
-                "numberFormat": {"type": "NUMBER", "pattern": "#,##0.00"}
+                "numberFormat": {"type": "NUMBER", "pattern": "#,##0.00"},
+                "horizontalAlignment": "RIGHT"
             })
             
-            # Автоподбор ширины
-            for i in range(1, 31):
-                worksheet_demands.adjust_column_width(i)
+            # Форматирование дат
+            worksheet_demands.format("B2:B1000", {
+                "numberFormat": {"type": "DATE", "pattern": "dd.mm.yyyy hh:mm"},
+                "horizontalAlignment": "CENTER"
+            })
             
-            # Фильтры и закрепление
-            worksheet_demands.set_basic_filter()
+            # Автоподбор ширины столбцов (правильный метод)
+            worksheet_demands.columns_auto_resize(0, 30)
+            
+            # Добавляем фильтры и закрепляем строку
+            worksheet_demands.set_basic_filter(1, 1, worksheet_demands.row_count, worksheet_demands.col_count)
             worksheet_demands.freeze(rows=1)
             
             # ===== 2. ЛИСТ С ТОВАРАМИ =====
             try:
                 worksheet_positions = sh.add_worksheet(title="Товары", rows=1000, cols=30)
                 
-                # Получаем данные
+                # Получаем данные позиций
                 cur.execute("""
                     SELECT 
                         d.number as demand_number, 
@@ -1239,7 +1237,7 @@ async def export_to_gsheet(date_range: DateRange):
                 
                 positions = cur.fetchall()
                 
-                # Заголовки
+                # Заголовки для листа товаров
                 pos_headers = [
                     "Номер", "Дата", "Контрагент", "Склад", "Проект", "Канал",
                     "Товар", "Кол-во", "Цена", "Сумма", "Себестоимость", "Артикул", "Код",
@@ -1249,8 +1247,10 @@ async def export_to_gsheet(date_range: DateRange):
                     "Мультизаказы", "Примерная скидка"
                 ]
                 
-                # Добавляем данные
+                # Добавляем заголовки
                 worksheet_positions.append_row(pos_headers)
+                
+                # Добавляем данные с группировкой по отгрузкам
                 if positions:
                     current_demand = None
                     rows_to_add = []
@@ -1260,6 +1260,7 @@ async def export_to_gsheet(date_range: DateRange):
                         
                         if demand_number != current_demand:
                             current_demand = demand_number
+                            # Добавляем строку с итогами по отгрузке
                             rows_to_add.append([
                                 demand_number, row[1], row[2], row[3], row[4], row[5],
                                 "ИТОГО ПО ОТГРУЗКЕ", "", "", row[9], row[10], "", "",
@@ -1269,6 +1270,7 @@ async def export_to_gsheet(date_range: DateRange):
                                 row[31]
                             ])
                         
+                        # Добавляем позицию товара
                         rows_to_add.append([
                             "", "", "", "", "", "",
                             row[6], row[7], row[8], row[9], row[10], row[11], row[12],
@@ -1277,29 +1279,35 @@ async def export_to_gsheet(date_range: DateRange):
                     
                     worksheet_positions.append_rows(rows_to_add)
                 
-                # Форматирование
+                # Форматирование заголовков
                 worksheet_positions.format("A1:AF1", {
                     "backgroundColor": {"red": 0.2, "green": 0.6, "blue": 0.2},
                     "horizontalAlignment": "CENTER",
                     "textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}}
                 })
                 
-                # Числовые форматы
+                # Форматирование числовых столбцов
                 worksheet_positions.format("G2:AF1000", {
-                    "numberFormat": {"type": "NUMBER", "pattern": "#,##0.00"}
+                    "numberFormat": {"type": "NUMBER", "pattern": "#,##0.00"},
+                    "horizontalAlignment": "RIGHT"
                 })
                 
-                # Автоподбор ширины
-                for i in range(1, 33):
-                    worksheet_positions.adjust_column_width(i)
+                # Форматирование дат
+                worksheet_positions.format("B2:B1000", {
+                    "numberFormat": {"type": "DATE", "pattern": "dd.mm.yyyy hh:mm"},
+                    "horizontalAlignment": "CENTER"
+                })
                 
-                # Фильтры и закрепление
-                worksheet_positions.set_basic_filter()
+                # Автоподбор ширины столбцов
+                worksheet_positions.columns_auto_resize(0, 32)
+                
+                # Добавляем фильтры и закрепляем строку
+                worksheet_positions.set_basic_filter(1, 1, worksheet_positions.row_count, worksheet_positions.col_count)
                 worksheet_positions.freeze(rows=1)
                 
             except Exception as e:
                 logger.error(f"Ошибка при создании листа с товарами: {str(e)}")
-                # Продолжаем работу даже если не удалось создать лист с товарами
+                # Продолжаем работу, даже если не удалось создать лист с товарами
             
             # Удаляем пустой лист по умолчанию
             if len(sh.worksheets()) > 2:
