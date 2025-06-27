@@ -1084,7 +1084,7 @@ async def export_to_gsheet(date_range: DateRange):
         gc = gspread.service_account(filename=GOOGLE_CREDS_PATH)
         
         # Создаем новую таблицу
-        title = f"Отчет {date_range.start_date} - {date_range.end_date}"
+        title = f"Отчет по отгрузкам {date_range.start_date} - {date_range.end_date}"
         sh = gc.create(title)
         sh.share(None, perm_type='anyone', role='writer')
         
@@ -1092,6 +1092,7 @@ async def export_to_gsheet(date_range: DateRange):
         conn = get_db_connection()
         cur = conn.cursor()
         
+        # 1. Лист с отгрузками (аналогично Excel)
         cur.execute("""
             SELECT 
                 number, 
@@ -1104,32 +1105,141 @@ async def export_to_gsheet(date_range: DateRange):
                 cost_price::float, 
                 overhead::float, 
                 profit::float, 
+                promo_period,
+                delivery_amount::float,
+                admin_data::float,
+                gdeslon::float,
+                cityads::float,
+                ozon::float,
+                ozon_fbs::float,
+                yamarket_fbs::float,
+                yamarket_dbs::float,
+                yandex_direct::float,
+                price_ru::float,
+                wildberries::float,
+                gis2::float,
+                seo::float,
+                programmatic::float,
+                avito::float,
+                multiorders::float,
+                estimated_discount::float,
                 status, 
                 comment
             FROM demands
             WHERE date BETWEEN %s AND %s
             ORDER BY date DESC
-            LIMIT 100
         """, (date_range.start_date, date_range.end_date))
         
         demands = cur.fetchall()
+        
+        # 2. Лист с позициями (аналогично Excel)
+        cur.execute("""
+            SELECT 
+                d.number as demand_number, 
+                to_char(d.date, 'YYYY-MM-DD HH24:MI:SS') as date,
+                d.counterparty, 
+                d.store, 
+                d.project, 
+                d.sales_channel,
+                dp.product_name, 
+                dp.quantity::float, 
+                dp.price::float, 
+                dp.amount::float, 
+                dp.cost_price::float,
+                dp.article, 
+                dp.code,
+                dp.overhead::float, 
+                dp.profit::float, 
+                d.promo_period, 
+                d.delivery_amount::float, 
+                d.admin_data::float, 
+                d.gdeslon::float,
+                d.cityads::float, 
+                d.ozon::float, 
+                d.ozon_fbs::float, 
+                d.yamarket_fbs::float, 
+                d.yamarket_dbs::float, 
+                d.yandex_direct::float,
+                d.price_ru::float, 
+                d.wildberries::float, 
+                d.gis2::float, 
+                d.seo::float, 
+                d.programmatic::float, 
+                d.avito::float, 
+                d.multiorders::float,
+                d.estimated_discount::float
+            FROM demand_positions dp
+            JOIN demands d ON dp.demand_id = d.id
+            WHERE d.date BETWEEN %s AND %s
+            ORDER BY d.number, d.date DESC
+        """, (date_range.start_date, date_range.end_date))
+        
+        positions = cur.fetchall()
         conn.close()
         
-        # Заполняем таблицу
-        worksheet = sh.get_worksheet(0)
-        worksheet.update_title("Отгрузки")
+        # Создаем лист с отгрузками
+        worksheet_demands = sh.get_worksheet(0)
+        worksheet_demands.update_title("Отгрузки")
         
-        # Заголовки
-        headers = [
-            "Номер", "Дата", "Контрагент", "Склад", "Проект", 
-            "Канал продаж", "Сумма", "Себестоимость", "Накладные", 
-            "Прибыль", "Статус", "Комментарий"
+        # Заголовки для отгрузок
+        demands_headers = [
+            "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
+            "Сумма", "Себестоимость", "Накладные расходы", "Прибыль", "Акционный период",
+            "Сумма доставки", "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS",
+            "Яндекс Маркет FBS", "Яндекс Маркет DBS", "Яндекс Директ", "Price ru",
+            "Wildberries", "2Gis", "SEO", "Программатик", "Авито", "Мультиканальные заказы",
+            "Примерная скидка", "Статус", "Комментарий"
         ]
-        worksheet.append_row(headers)
         
-        # Данные
+        # Добавляем данные
+        worksheet_demands.append_row(demands_headers)
         for row in demands:
-            worksheet.append_row(list(row))
+            worksheet_demands.append_row(list(row))
+        
+        # Форматирование листа с отгрузками
+        format_worksheet(worksheet_demands, len(demands_headers))
+        
+        # Создаем лист с позициями
+        worksheet_positions = sh.add_worksheet(title="Товары", rows="1000", cols="30")
+        
+        # Заголовки для позиций
+        positions_headers = [
+            "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
+            "Товар", "Количество", "Цена", "Сумма", "Себестоимость", "Артикул", "Код",
+            "Накладные расходы", "Прибыль", "Акционный период", "Сумма доставки", "Адмидат",
+            "ГдеСлон", "CityAds", "Ozon", "Ozon FBS", "Яндекс Маркет FBS", "Яндекс Маркет DBS",
+            "Яндекс Директ", "Price ru", "Wildberries", "2Gis", "SEO", "Программатик", "Авито",
+            "Мультиканальные заказы", "Примерная скидка"
+        ]
+        
+        # Добавляем данные с группировкой по отгрузкам
+        worksheet_positions.append_row(positions_headers)
+        current_demand = None
+        
+        for row in positions:
+            demand_number = row[0]
+            
+            # Добавляем строку с итогами по отгрузке
+            if demand_number != current_demand:
+                current_demand = demand_number
+                worksheet_positions.append_row([
+                    demand_number, row[1], row[2], row[3], row[4], row[5],
+                    "Итого по отгрузке:", "", "", row[9], row[10], "", "",
+                    row[13], row[14], row[15], row[16], row[17], row[18],
+                    row[19], row[20], row[21], row[22], row[23], row[24],
+                    row[25], row[26], row[27], row[28], row[29], row[30],
+                    row[31]
+                ])
+            
+            # Добавляем позицию товара
+            worksheet_positions.append_row([
+                "", "", "", "", "", "",  # Пустые поля для номера отгрузки, даты и т.д.
+                row[6], row[7], row[8], row[9], row[10], row[11], row[12],
+                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""
+            ])
+        
+        # Форматирование листа с позициями
+        format_worksheet(worksheet_positions, len(positions_headers))
         
         logger.info(f"Таблица создана: {sh.url}")
         return {"url": sh.url}
@@ -1140,3 +1250,29 @@ async def export_to_gsheet(date_range: DateRange):
             status_code=500,
             content={"detail": f"Ошибка при создании таблицы: {str(e)}"}
         )
+
+def format_worksheet(worksheet, cols_count):
+    """Форматирование листа Google Таблицы"""
+    # Форматирование заголовков
+    header_format = {
+        "backgroundColor": {"red": 0.2, "green": 0.5, "blue": 0.8},
+        "textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
+        "horizontalAlignment": "CENTER"
+    }
+    worksheet.format(f"A1:{gspread.utils.rowcol_to_a1(1, cols_count)}", header_format)
+    
+    # Автоподбор ширины столбцов
+    worksheet.columns_auto_resize(1, cols_count)
+    
+    # Форматирование числовых полей
+    number_format = {"numberFormat": {"type": "NUMBER", "pattern": "#,##0.00"}}
+    worksheet.format(f"G2:{gspread.utils.rowcol_to_a1(worksheet.row_count, cols_count)}", number_format)
+    
+    # Чередующаяся заливка строк
+    alternating_colors = {
+        "header": {"color": {"red": 0.2, "green": 0.5, "blue": 0.8}},
+        "first": {"color": {"red": 1, "green": 1, "blue": 1}},
+        "second": {"color": {"red": 0.95, "green": 0.95, "blue": 0.95}}
+    }
+    worksheet.set_basic_filter()
+    worksheet.freeze(rows=1)
