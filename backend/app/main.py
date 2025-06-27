@@ -1273,59 +1273,35 @@ async def export_to_gsheet(date_range: DateRange):
 
 async def format_demands_sheet(worksheet, rows_count):
     """Красивое форматирование листа с отгрузками"""
-    # 1. Форматирование заголовков
-    header_format = {
-        "backgroundColor": {"red": 0.13, "green": 0.38, "blue": 0.58},  # Синий
-        "textFormat": {
-            "foregroundColor": {"red": 1, "green": 1, "blue": 1},  # Белый
-            "bold": True,
-            "fontSize": 10
-        },
-        "horizontalAlignment": "CENTER",
-        "verticalAlignment": "MIDDLE",
-        "wrapStrategy": "WRAP"
-    }
-    
-    # 2. Форматирование числовых данных
-    number_format = {
-        "numberFormat": {"type": "NUMBER", "pattern": "#,##0.00"},
-        "horizontalAlignment": "RIGHT"
-    }
-    
-    # 3. Форматирование дат
-    date_format = {
-        "numberFormat": {"type": "DATE", "pattern": "dd.mm.yyyy hh:mm"},
-        "horizontalAlignment": "CENTER"
-    }
-    
-    # 4. Форматирование текста
-    text_format = {
-        "horizontalAlignment": "LEFT",
-        "wrapStrategy": "WRAP"
-    }
-    
-    # 5. Чередующаяся заливка строк
-    banding = {
-        "header": {"color": {"red": 0.13, "green": 0.38, "blue": 0.58}},
-        "first": {"color": {"red": 1, "green": 1, "blue": 1}},  # Белый
-        "second": {"color": {"red": 0.93, "green": 0.96, "blue": 0.98}}  # Светло-синий
-    }
-    
-    # Применяем форматирование
     requests = []
     
-    # Заголовки
+    # 1. Форматирование заголовков
     requests.append({
         "repeatCell": {
-            "range": {"sheetId": worksheet.id, "startRowIndex": 0, "endRowIndex": 1},
-            "cell": {"userEnteredFormat": header_format},
+            "range": {
+                "sheetId": worksheet.id,
+                "startRowIndex": 0,
+                "endRowIndex": 1
+            },
+            "cell": {
+                "userEnteredFormat": {
+                    "backgroundColor": {"red": 0.13, "green": 0.38, "blue": 0.58},
+                    "textFormat": {
+                        "foregroundColor": {"red": 1, "green": 1, "blue": 1},
+                        "bold": True,
+                        "fontSize": 10
+                    },
+                    "horizontalAlignment": "CENTER",
+                    "verticalAlignment": "MIDDLE",
+                    "wrapStrategy": "WRAP"
+                }
+            },
             "fields": "userEnteredFormat"
         }
     })
     
-    # Числовые столбцы (G-J, L-AA)
-    num_columns = list(range(6, 10)) + list(range(11, 28))
-    for col in num_columns:
+    # 2. Форматирование числовых данных (столбцы G-J, L-AA)
+    for col in [6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27]:
         requests.append({
             "repeatCell": {
                 "range": {
@@ -1335,12 +1311,17 @@ async def format_demands_sheet(worksheet, rows_count):
                     "startColumnIndex": col,
                     "endColumnIndex": col + 1
                 },
-                "cell": {"userEnteredFormat": number_format},
+                "cell": {
+                    "userEnteredFormat": {
+                        "numberFormat": {"type": "NUMBER", "pattern": "#,##0.00"},
+                        "horizontalAlignment": "RIGHT"
+                    }
+                },
                 "fields": "userEnteredFormat"
             }
         })
     
-    # Столбец с датой (B)
+    # 3. Форматирование даты (столбец B)
     requests.append({
         "repeatCell": {
             "range": {
@@ -1350,14 +1331,18 @@ async def format_demands_sheet(worksheet, rows_count):
                 "startColumnIndex": 1,
                 "endColumnIndex": 2
             },
-            "cell": {"userEnteredFormat": date_format},
+            "cell": {
+                "userEnteredFormat": {
+                    "numberFormat": {"type": "DATE", "pattern": "dd.mm.yyyy hh:mm"},
+                    "horizontalAlignment": "CENTER"
+                }
+            },
             "fields": "userEnteredFormat"
         }
     })
     
-    # Текстовые столбцы (A, C-F, AB-AD)
-    text_columns = [0] + list(range(2, 6)) + list(range(27, 30))
-    for col in text_columns:
+    # 4. Форматирование текстовых столбцов (A, C-F, AB-AD)
+    for col in [0, 2, 3, 4, 5, 28, 29]:
         requests.append({
             "repeatCell": {
                 "range": {
@@ -1367,12 +1352,17 @@ async def format_demands_sheet(worksheet, rows_count):
                     "startColumnIndex": col,
                     "endColumnIndex": col + 1
                 },
-                "cell": {"userEnteredFormat": text_format},
+                "cell": {
+                    "userEnteredFormat": {
+                        "horizontalAlignment": "LEFT",
+                        "wrapStrategy": "WRAP"
+                    }
+                },
                 "fields": "userEnteredFormat"
             }
         })
     
-    # Чередующаяся заливка
+    # 5. Чередующаяся заливка строк
     requests.append({
         "addBanding": {
             "bandedRange": {
@@ -1381,12 +1371,16 @@ async def format_demands_sheet(worksheet, rows_count):
                     "startRowIndex": 1,
                     "endRowIndex": rows_count + 1
                 },
-                "rowProperties": banding
+                "rowProperties": {
+                    "headerColor": {"red": 0.13, "green": 0.38, "blue": 0.58},
+                    "firstBandColor": {"red": 1, "green": 1, "blue": 1},
+                    "secondBandColor": {"red": 0.93, "green": 0.96, "blue": 0.98}
+                }
             }
         }
     })
     
-    # Автофильтр
+    # 6. Автофильтр
     requests.append({
         "setBasicFilter": {
             "filter": {
@@ -1399,7 +1393,7 @@ async def format_demands_sheet(worksheet, rows_count):
         }
     })
     
-    # Замораживаем заголовки
+    # 7. Замораживаем заголовки
     requests.append({
         "updateSheetProperties": {
             "properties": {
@@ -1410,83 +1404,52 @@ async def format_demands_sheet(worksheet, rows_count):
         }
     })
     
-    # Автоподбор ширины столбцов
-    for col in range(30):  # Для всех столбцов
-        requests.append({
-            "autoResizeDimensions": {
-                "dimensions": {
-                    "sheetId": worksheet.id,
-                    "dimension": "COLUMNS",
-                    "startIndex": col,
-                    "endIndex": col + 1
-                }
+    # 8. Автоподбор ширины столбцов
+    requests.append({
+        "autoResizeDimensions": {
+            "dimensions": {
+                "sheetId": worksheet.id,
+                "dimension": "COLUMNS",
+                "startIndex": 0,
+                "endIndex": 30
             }
-        })
+        }
+    })
     
     # Выполняем все запросы форматирования
     worksheet.spreadsheet.batch_update({"requests": requests})
 
 async def format_positions_sheet(worksheet, rows_count):
     """Красивое форматирование листа с товарами"""
-    # 1. Форматирование заголовков
-    header_format = {
-        "backgroundColor": {"red": 0.23, "green": 0.52, "blue": 0.23},  # Зеленый
-        "textFormat": {
-            "foregroundColor": {"red": 1, "green": 1, "blue": 1},  # Белый
-            "bold": True,
-            "fontSize": 10
-        },
-        "horizontalAlignment": "CENTER",
-        "verticalAlignment": "MIDDLE",
-        "wrapStrategy": "WRAP"
-    }
-    
-    # 2. Форматирование числовых данных
-    number_format = {
-        "numberFormat": {"type": "NUMBER", "pattern": "#,##0.00"},
-        "horizontalAlignment": "RIGHT"
-    }
-    
-    # 3. Форматирование дат
-    date_format = {
-        "numberFormat": {"type": "DATE", "pattern": "dd.mm.yyyy hh:mm"},
-        "horizontalAlignment": "CENTER"
-    }
-    
-    # 4. Форматирование текста
-    text_format = {
-        "horizontalAlignment": "LEFT",
-        "wrapStrategy": "WRAP"
-    }
-    
-    # 5. Форматирование строк с итогами
-    total_format = {
-        "backgroundColor": {"red": 0.85, "green": 0.92, "blue": 0.83},  # Светло-зеленый
-        "textFormat": {"bold": True}
-    }
-    
-    # 6. Чередующаяся заливка строк
-    banding = {
-        "header": {"color": {"red": 0.23, "green": 0.52, "blue": 0.23}},
-        "first": {"color": {"red": 1, "green": 1, "blue": 1}},  # Белый
-        "second": {"color": {"red": 0.93, "green": 0.96, "blue": 0.93}}  # Светло-зеленый
-    }
-    
-    # Применяем форматирование
     requests = []
     
-    # Заголовки
+    # 1. Форматирование заголовков
     requests.append({
         "repeatCell": {
-            "range": {"sheetId": worksheet.id, "startRowIndex": 0, "endRowIndex": 1},
-            "cell": {"userEnteredFormat": header_format},
+            "range": {
+                "sheetId": worksheet.id,
+                "startRowIndex": 0,
+                "endRowIndex": 1
+            },
+            "cell": {
+                "userEnteredFormat": {
+                    "backgroundColor": {"red": 0.23, "green": 0.52, "blue": 0.23},
+                    "textFormat": {
+                        "foregroundColor": {"red": 1, "green": 1, "blue": 1},
+                        "bold": True,
+                        "fontSize": 10
+                    },
+                    "horizontalAlignment": "CENTER",
+                    "verticalAlignment": "MIDDLE",
+                    "wrapStrategy": "WRAP"
+                }
+            },
             "fields": "userEnteredFormat"
         }
     })
     
-    # Числовые столбцы (G-J, L-AA)
-    num_columns = [6, 7, 8, 9, 10] + list(range(13, 32))
-    for col in num_columns:
+    # 2. Форматирование числовых данных (столбцы G-J, N-AF)
+    for col in [6, 7, 8, 9, 10, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]:
         requests.append({
             "repeatCell": {
                 "range": {
@@ -1496,12 +1459,17 @@ async def format_positions_sheet(worksheet, rows_count):
                     "startColumnIndex": col,
                     "endColumnIndex": col + 1
                 },
-                "cell": {"userEnteredFormat": number_format},
+                "cell": {
+                    "userEnteredFormat": {
+                        "numberFormat": {"type": "NUMBER", "pattern": "#,##0.00"},
+                        "horizontalAlignment": "RIGHT"
+                    }
+                },
                 "fields": "userEnteredFormat"
             }
         })
     
-    # Столбец с датой (B)
+    # 3. Форматирование даты (столбец B)
     requests.append({
         "repeatCell": {
             "range": {
@@ -1511,14 +1479,18 @@ async def format_positions_sheet(worksheet, rows_count):
                 "startColumnIndex": 1,
                 "endColumnIndex": 2
             },
-            "cell": {"userEnteredFormat": date_format},
+            "cell": {
+                "userEnteredFormat": {
+                    "numberFormat": {"type": "DATE", "pattern": "dd.mm.yyyy hh:mm"},
+                    "horizontalAlignment": "CENTER"
+                }
+            },
             "fields": "userEnteredFormat"
         }
     })
     
-    # Текстовые столбцы (A, C-F, K-L)
-    text_columns = [0] + list(range(2, 6)) + [10, 11, 12]
-    for col in text_columns:
+    # 4. Форматирование текстовых столбцов (A, C-F, K-L)
+    for col in [0, 2, 3, 4, 5, 11, 12]:
         requests.append({
             "repeatCell": {
                 "range": {
@@ -1528,12 +1500,17 @@ async def format_positions_sheet(worksheet, rows_count):
                     "startColumnIndex": col,
                     "endColumnIndex": col + 1
                 },
-                "cell": {"userEnteredFormat": text_format},
+                "cell": {
+                    "userEnteredFormat": {
+                        "horizontalAlignment": "LEFT",
+                        "wrapStrategy": "WRAP"
+                    }
+                },
                 "fields": "userEnteredFormat"
             }
         })
     
-    # Строки с итогами
+    # 5. Строки с итогами
     requests.append({
         "repeatCell": {
             "range": {
@@ -1541,7 +1518,12 @@ async def format_positions_sheet(worksheet, rows_count):
                 "startRowIndex": 1,
                 "endRowIndex": rows_count + 1
             },
-            "cell": {"userEnteredFormat": total_format},
+            "cell": {
+                "userEnteredFormat": {
+                    "backgroundColor": {"red": 0.85, "green": 0.92, "blue": 0.83},
+                    "textFormat": {"bold": True}
+                }
+            },
             "fields": "userEnteredFormat",
             "predicate": {
                 "formula": '=REGEXMATCH(INDIRECT("G"&ROW()), "^📌 ИТОГО ПО ОТГРУЗКЕ")'
@@ -1549,7 +1531,7 @@ async def format_positions_sheet(worksheet, rows_count):
         }
     })
     
-    # Чередующаяся заливка
+    # 6. Чередующаяся заливка строк
     requests.append({
         "addBanding": {
             "bandedRange": {
@@ -1558,12 +1540,16 @@ async def format_positions_sheet(worksheet, rows_count):
                     "startRowIndex": 1,
                     "endRowIndex": rows_count + 1
                 },
-                "rowProperties": banding
+                "rowProperties": {
+                    "headerColor": {"red": 0.23, "green": 0.52, "blue": 0.23},
+                    "firstBandColor": {"red": 1, "green": 1, "blue": 1},
+                    "secondBandColor": {"red": 0.93, "green": 0.96, "blue": 0.93}
+                }
             }
         }
     })
     
-    # Автофильтр
+    # 7. Автофильтр
     requests.append({
         "setBasicFilter": {
             "filter": {
@@ -1576,7 +1562,7 @@ async def format_positions_sheet(worksheet, rows_count):
         }
     })
     
-    # Замораживаем заголовки
+    # 8. Замораживаем заголовки
     requests.append({
         "updateSheetProperties": {
             "properties": {
@@ -1587,18 +1573,17 @@ async def format_positions_sheet(worksheet, rows_count):
         }
     })
     
-    # Автоподбор ширины столбцов
-    for col in range(32):  # Для всех столбцов
-        requests.append({
-            "autoResizeDimensions": {
-                "dimensions": {
-                    "sheetId": worksheet.id,
-                    "dimension": "COLUMNS",
-                    "startIndex": col,
-                    "endIndex": col + 1
-                }
+    # 9. Автоподбор ширины столбцов
+    requests.append({
+        "autoResizeDimensions": {
+            "dimensions": {
+                "sheetId": worksheet.id,
+                "dimension": "COLUMNS",
+                "startIndex": 0,
+                "endIndex": 32
             }
-        })
+        }
+    })
     
     # Выполняем все запросы форматирования
     worksheet.spreadsheet.batch_update({"requests": requests})
