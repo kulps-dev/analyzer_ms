@@ -19,6 +19,7 @@ from fastapi import HTTPException
 from pathlib import Path
 from fastapi.responses import JSONResponse
 from datetime import datetime
+from decimal import Decimal
 import json
 
 # Настройка логгера
@@ -1062,6 +1063,12 @@ class DateTimeEncoder(json.JSONEncoder):
             return obj.isoformat()
         return super().default(obj)
 
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return float(obj)
+        return super().default(obj)
+
 @app.post("/api/export/gsheet")
 async def export_to_gsheet(date_range: DateRange):
     try:
@@ -1070,7 +1077,8 @@ async def export_to_gsheet(date_range: DateRange):
             logger.error("Файл учетных данных не найден!")
             return JSONResponse(
                 status_code=500,
-                content={"detail": "Файл учетных данных Google не найден"}
+                content={"detail": "Файл учетных данных Google не найден"},
+                encoder=DecimalEncoder
             )
 
         logger.info("Инициализация Google Sheets API...")
@@ -1085,7 +1093,6 @@ async def export_to_gsheet(date_range: DateRange):
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # Исправленный запрос без русских комментариев
         cur.execute("""
             SELECT 
                 number, 
@@ -1094,10 +1101,10 @@ async def export_to_gsheet(date_range: DateRange):
                 store, 
                 project, 
                 sales_channel,
-                amount, 
-                cost_price, 
-                overhead, 
-                profit, 
+                amount::float, 
+                cost_price::float, 
+                overhead::float, 
+                profit::float, 
                 status, 
                 comment
             FROM demands
@@ -1126,11 +1133,15 @@ async def export_to_gsheet(date_range: DateRange):
             worksheet.append_row(list(row))
         
         logger.info(f"Таблица создана: {sh.url}")
-        return {"url": sh.url}
+        return JSONResponse(
+            content={"url": sh.url},
+            encoder=DecimalEncoder
+        )
         
     except Exception as e:
         logger.error(f"Ошибка при экспорте: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={"detail": f"Ошибка при создании таблицы: {str(e)}"}
+            content={"detail": f"Ошибка при создании таблицы: {str(e)}"},
+            encoder=DecimalEncoder
         )
