@@ -1074,6 +1074,7 @@ async def export_to_gsheet(date_range: DateRange):
     try:
         logger.info("Создание Google Таблицы с улучшенным оформлением...")
         
+        # Проверка учетных данных
         if not os.path.exists(GOOGLE_CREDS_PATH):
             logger.error("Файл учетных данных не найден!")
             return JSONResponse(
@@ -1081,7 +1082,10 @@ async def export_to_gsheet(date_range: DateRange):
                 content={"detail": "Файл учетных данных Google не найден"}
             )
 
+        # Инициализация Google Sheets API
         gc = gspread.service_account(filename=GOOGLE_CREDS_PATH)
+        
+        # Создаем новую таблицу
         title = f"Отчет по отгрузкам {date_range.start_date} - {date_range.end_date}"
         sh = gc.create(title)
         sh.share(None, perm_type='anyone', role='writer')
@@ -1146,63 +1150,170 @@ async def export_to_gsheet(date_range: DateRange):
         
         demands = cur.fetchall()
         
-        # Заголовки с оптимальной шириной
+        # Заголовки
         demands_headers = [
-            ("Номер", 80), ("Дата", 150), ("Контрагент", 200), ("Склад", 150), 
-            ("Проект", 120), ("Канал продаж", 150), ("Сумма", 100), 
-            ("Себестоимость", 120), ("Накладные", 100), ("Прибыль", 100),
-            ("Акц. период", 120), ("Доставка", 100), ("Адмидат", 100),
-            ("ГдеСлон", 100), ("CityAds", 100), ("Ozon", 80), ("Ozon FBS", 100),
-            ("Я.Маркет FBS", 120), ("Я.Маркет DBS", 120), ("Я.Директ", 100),
-            ("Price ru", 100), ("Wildberries", 120), ("2ГИС", 80), ("SEO", 80),
-            ("Программатик", 120), ("Авито", 80), ("Мультизаказы", 120),
-            ("Примерная скидка", 120), ("Статус", 100), ("Комментарий", 200)
+            "Номер", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
+            "Сумма", "Себестоимость", "Накладные", "Прибыль", "Акционный период",
+            "Сумма доставки", "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS",
+            "Я.Маркет FBS", "Я.Маркет DBS", "Я.Директ", "Price ru", "Wildberries",
+            "2ГИС", "SEO", "Программатик", "Авито", "Мультизаказы", "Примерная скидка",
+            "Статус", "Комментарий"
         ]
         
-        # Добавляем заголовки
-        worksheet_demands.append_row([h[0] for h in demands_headers])
-        
-        # Устанавливаем ширину столбцов
-        for i, (_, width) in enumerate(demands_headers, 1):
-            worksheet_demands.update_column_properties(
-                i,
-                {"pixelSize": width}
-            )
-        
-        # Добавляем данные
+        # Добавляем заголовки и данные
+        worksheet_demands.append_row(demands_headers)
         if demands:
             worksheet_demands.append_rows([list(row) for row in demands])
         
         # Форматируем весь лист
-        worksheet_demands.format(
-            "A1:AD{}".format(len(demands) + 1 if demands else 1),
-            {
-                **CELL_STYLE,
-                "horizontalAlignment": "LEFT",
-                "verticalAlignment": "MIDDLE"
+        last_row = len(demands) + 1 if demands else 1
+        requests = [{
+            "repeatCell": {
+                "range": {
+                    "sheetId": worksheet_demands.id,
+                    "startRowIndex": 0,
+                    "endRowIndex": last_row,
+                    "startColumnIndex": 0,
+                    "endColumnIndex": 30
+                },
+                "cell": {"userEnteredFormat": CELL_STYLE},
+                "fields": "userEnteredFormat"
             }
-        )
+        }]
         
-        # Специальное форматирование для заголовков
-        worksheet_demands.format("A1:AD1", HEADER_STYLE)
+        # Форматирование заголовков
+        requests.append({
+            "repeatCell": {
+                "range": {
+                    "sheetId": worksheet_demands.id,
+                    "startRowIndex": 0,
+                    "endRowIndex": 1
+                },
+                "cell": {"userEnteredFormat": HEADER_STYLE},
+                "fields": "userEnteredFormat"
+            }
+        })
         
-        # Форматирование числовых столбцов
-        for col in ["G", "H", "I", "J", "L", "M", "N", "O", "P", "Q", 
-                   "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "AA", "AB"]:
-            worksheet_demands.format(
-                f"{col}2:{col}{len(demands)+1 if demands else 1}",
-                {**NUMBER_FORMAT, **CELL_STYLE}
-            )
+        # Форматирование числовых столбцов (G-J, L-AA)
+        for col in [6, 7, 8, 9] + list(range(11, 28)):
+            requests.append({
+                "repeatCell": {
+                    "range": {
+                        "sheetId": worksheet_demands.id,
+                        "startRowIndex": 1,
+                        "endRowIndex": last_row,
+                        "startColumnIndex": col,
+                        "endColumnIndex": col + 1
+                    },
+                    "cell": {"userEnteredFormat": {**NUMBER_FORMAT, **CELL_STYLE}},
+                    "fields": "userEnteredFormat"
+                }
+            })
         
-        # Форматирование дат
-        worksheet_demands.format(
-            f"B2:B{len(demands)+1 if demands else 1}",
-            {**DATE_FORMAT, **CELL_STYLE}
-        )
+        # Форматирование дат (столбец B)
+        requests.append({
+            "repeatCell": {
+                "range": {
+                    "sheetId": worksheet_demands.id,
+                    "startRowIndex": 1,
+                    "endRowIndex": last_row,
+                    "startColumnIndex": 1,
+                    "endColumnIndex": 2
+                },
+                "cell": {"userEnteredFormat": {**DATE_FORMAT, **CELL_STYLE}},
+                "fields": "userEnteredFormat"
+            }
+        })
+        
+        # Установка ширины столбцов
+        column_widths = [
+            {"pixelSize": 80},   # A: Номер
+            {"pixelSize": 150},  # B: Дата
+            {"pixelSize": 200},  # C: Контрагент
+            {"pixelSize": 150},  # D: Склад
+            {"pixelSize": 120},  # E: Проект
+            {"pixelSize": 150},  # F: Канал продаж
+            {"pixelSize": 100},  # G: Сумма
+            {"pixelSize": 120},  # H: Себестоимость
+            {"pixelSize": 100},  # I: Накладные
+            {"pixelSize": 100},  # J: Прибыль
+            {"pixelSize": 120},  # K: Акц. период
+            {"pixelSize": 100},  # L: Доставка
+            {"pixelSize": 100},  # M: Адмидат
+            {"pixelSize": 100},  # N: ГдеСлон
+            {"pixelSize": 100},  # O: CityAds
+            {"pixelSize": 80},   # P: Ozon
+            {"pixelSize": 100},  # Q: Ozon FBS
+            {"pixelSize": 120},  # R: Я.Маркет FBS
+            {"pixelSize": 120},  # S: Я.Маркет DBS
+            {"pixelSize": 100},  # T: Я.Директ
+            {"pixelSize": 100},  # U: Price ru
+            {"pixelSize": 120},  # V: Wildberries
+            {"pixelSize": 80},   # W: 2ГИС
+            {"pixelSize": 80},   # X: SEO
+            {"pixelSize": 120},  # Y: Программатик
+            {"pixelSize": 80},   # Z: Авито
+            {"pixelSize": 120},  # AA: Мультизаказы
+            {"pixelSize": 120},  # AB: Примерная скидка
+            {"pixelSize": 100},  # AC: Статус
+            {"pixelSize": 200}   # AD: Комментарий
+        ]
+        
+        requests.append({
+            "updateDimensionProperties": {
+                "range": {
+                    "sheetId": worksheet_demands.id,
+                    "dimension": "COLUMNS",
+                    "startIndex": 0,
+                    "endIndex": 30
+                },
+                "properties": {"pixelSize": 100},  # Значение по умолчанию
+                "fields": "pixelSize"
+            }
+        })
+        
+        for i, width in enumerate(column_widths):
+            requests.append({
+                "updateDimensionProperties": {
+                    "range": {
+                        "sheetId": worksheet_demands.id,
+                        "dimension": "COLUMNS",
+                        "startIndex": i,
+                        "endIndex": i + 1
+                    },
+                    "properties": width,
+                    "fields": "pixelSize"
+                }
+            })
         
         # Фильтры и закрепление
-        worksheet_demands.set_basic_filter(1, 1, worksheet_demands.row_count, worksheet_demands.col_count)
-        worksheet_demands.freeze(rows=1)
+        requests.extend([
+            {
+                "setBasicFilter": {
+                    "filter": {
+                        "range": {
+                            "sheetId": worksheet_demands.id,
+                            "startRowIndex": 0,
+                            "endRowIndex": last_row,
+                            "startColumnIndex": 0,
+                            "endColumnIndex": 30
+                        }
+                    }
+                }
+            },
+            {
+                "updateSheetProperties": {
+                    "properties": {
+                        "sheetId": worksheet_demands.id,
+                        "gridProperties": {"frozenRowCount": 1}
+                    },
+                    "fields": "gridProperties.frozenRowCount"
+                }
+            }
+        ])
+        
+        # Применяем все запросы
+        sh.batch_update({"requests": requests})
         
         # ===== 2. ЛИСТ С ТОВАРАМИ =====
         worksheet_positions = sh.add_worksheet(title="Товары", rows=1000, cols=32)
@@ -1228,28 +1339,18 @@ async def export_to_gsheet(date_range: DateRange):
         positions = cur.fetchall()
         conn.close()
         
-        # Заголовки с оптимальной шириной
+        # Заголовки
         pos_headers = [
-            ("Номер", 80), ("Дата", 150), ("Контрагент", 200), ("Склад", 150), 
-            ("Проект", 120), ("Канал", 120), ("Товар", 250), ("Кол-во", 80), 
-            ("Цена", 100), ("Сумма", 100), ("Себестоимость", 120), ("Артикул", 100), 
-            ("Код", 80), ("Накладные", 100), ("Прибыль", 100), ("Акц. период", 120),
-            ("Доставка", 100), ("Адмидат", 100), ("ГдеСлон", 100), ("CityAds", 100),
-            ("Ozon", 80), ("Ozon FBS", 100), ("Я.Маркет FBS", 120), ("Я.Маркет DBS", 120),
-            ("Я.Директ", 100), ("Price ru", 100), ("Wildberries", 120), ("2ГИС", 80),
-            ("SEO", 80), ("Программатик", 120), ("Авито", 80), ("Мультизаказы", 120),
-            ("Примерная скидка", 120)
+            "Номер", "Дата", "Контрагент", "Склад", "Проект", "Канал",
+            "Товар", "Кол-во", "Цена", "Сумма", "Себестоимость", "Артикул", "Код",
+            "Накладные", "Прибыль", "Акц. период", "Доставка", "Адмидат",
+            "ГдеСлон", "CityAds", "Ozon", "Ozon FBS", "Я.Маркет FBS", "Я.Маркет DBS",
+            "Я.Директ", "Price ru", "Wildberries", "2ГИС", "SEO", "Программатик", "Авито",
+            "Мультизаказы", "Примерная скидка"
         ]
         
         # Добавляем заголовки
-        worksheet_positions.append_row([h[0] for h in pos_headers])
-        
-        # Устанавливаем ширину столбцов
-        for i, (_, width) in enumerate(pos_headers, 1):
-            worksheet_positions.update_column_properties(
-                i,
-                {"pixelSize": width}
-            )
+        worksheet_positions.append_row(pos_headers)
         
         # Добавляем данные с группировкой
         if positions:
@@ -1278,40 +1379,163 @@ async def export_to_gsheet(date_range: DateRange):
             
             worksheet_positions.append_rows(rows_to_add)
         
-        # Форматируем весь лист
+        # Форматируем лист с товарами
         last_row = len(positions)*2 + 1 if positions else 1
-        worksheet_positions.format(
-            f"A1:AF{last_row}",
-            {
-                **CELL_STYLE,
-                "horizontalAlignment": "LEFT",
-                "verticalAlignment": "MIDDLE"
-            }
-        )
+        requests = []
         
-        # Специальное форматирование для заголовков
-        worksheet_positions.format("A1:AF1", {
-            **HEADER_STYLE,
-            "backgroundColor": {"red": 0.23, "green": 0.52, "blue": 0.23}
+        # Основное форматирование ячеек
+        requests.append({
+            "repeatCell": {
+                "range": {
+                    "sheetId": worksheet_positions.id,
+                    "startRowIndex": 0,
+                    "endRowIndex": last_row,
+                    "startColumnIndex": 0,
+                    "endColumnIndex": 32
+                },
+                "cell": {"userEnteredFormat": CELL_STYLE},
+                "fields": "userEnteredFormat"
+            }
         })
         
-        # Форматирование числовых столбцов
-        for col in ["H", "I", "J", "K", "N", "O", "Q", "R", "S", "T", 
-                   "U", "V", "W", "X", "Y", "Z", "AA", "AB", "AC", "AD", "AE"]:
-            worksheet_positions.format(
-                f"{col}2:{col}{last_row}",
-                {**NUMBER_FORMAT, **CELL_STYLE}
-            )
+        # Форматирование заголовков
+        requests.append({
+            "repeatCell": {
+                "range": {
+                    "sheetId": worksheet_positions.id,
+                    "startRowIndex": 0,
+                    "endRowIndex": 1
+                },
+                "cell": {"userEnteredFormat": {
+                    **HEADER_STYLE,
+                    "backgroundColor": {"red": 0.23, "green": 0.52, "blue": 0.23}
+                }},
+                "fields": "userEnteredFormat"
+            }
+        })
         
-        # Форматирование дат
-        worksheet_positions.format(
-            f"B2:B{last_row}",
-            {**DATE_FORMAT, **CELL_STYLE}
-        )
+        # Форматирование числовых столбцов (H, I, J, K, N, O, Q-AD)
+        for col in [7, 8, 9, 10, 13, 14] + list(range(16, 32)):
+            requests.append({
+                "repeatCell": {
+                    "range": {
+                        "sheetId": worksheet_positions.id,
+                        "startRowIndex": 1,
+                        "endRowIndex": last_row,
+                        "startColumnIndex": col,
+                        "endColumnIndex": col + 1
+                    },
+                    "cell": {"userEnteredFormat": {**NUMBER_FORMAT, **CELL_STYLE}},
+                    "fields": "userEnteredFormat"
+                }
+            })
+        
+        # Форматирование дат (столбец B)
+        requests.append({
+            "repeatCell": {
+                "range": {
+                    "sheetId": worksheet_positions.id,
+                    "startRowIndex": 1,
+                    "endRowIndex": last_row,
+                    "startColumnIndex": 1,
+                    "endColumnIndex": 2
+                },
+                "cell": {"userEnteredFormat": {**DATE_FORMAT, **CELL_STYLE}},
+                "fields": "userEnteredFormat"
+            }
+        })
+        
+        # Установка ширины столбцов
+        column_widths = [
+            {"pixelSize": 80},   # A: Номер
+            {"pixelSize": 150},  # B: Дата
+            {"pixelSize": 200},  # C: Контрагент
+            {"pixelSize": 150},  # D: Склад
+            {"pixelSize": 120},  # E: Проект
+            {"pixelSize": 120},  # F: Канал
+            {"pixelSize": 250},  # G: Товар
+            {"pixelSize": 80},   # H: Кол-во
+            {"pixelSize": 100},  # I: Цена
+            {"pixelSize": 100},  # J: Сумма
+            {"pixelSize": 120},  # K: Себестоимость
+            {"pixelSize": 100},  # L: Артикул
+            {"pixelSize": 80},   # M: Код
+            {"pixelSize": 100},  # N: Накладные
+            {"pixelSize": 100},  # O: Прибыль
+            {"pixelSize": 120},  # P: Акц. период
+            {"pixelSize": 100},  # Q: Доставка
+            {"pixelSize": 100},  # R: Адмидат
+            {"pixelSize": 100},  # S: ГдеСлон
+            {"pixelSize": 100},  # T: CityAds
+            {"pixelSize": 80},   # U: Ozon
+            {"pixelSize": 100},  # V: Ozon FBS
+            {"pixelSize": 120},  # W: Я.Маркет FBS
+            {"pixelSize": 120},  # X: Я.Маркет DBS
+            {"pixelSize": 100},  # Y: Я.Директ
+            {"pixelSize": 100},  # Z: Price ru
+            {"pixelSize": 120},  # AA: Wildberries
+            {"pixelSize": 80},   # AB: 2ГИС
+            {"pixelSize": 80},   # AC: SEO
+            {"pixelSize": 120},  # AD: Программатик
+            {"pixelSize": 80},   # AE: Авито
+            {"pixelSize": 120}   # AF: Примерная скидка
+        ]
+        
+        requests.append({
+            "updateDimensionProperties": {
+                "range": {
+                    "sheetId": worksheet_positions.id,
+                    "dimension": "COLUMNS",
+                    "startIndex": 0,
+                    "endIndex": 32
+                },
+                "properties": {"pixelSize": 100},  # Значение по умолчанию
+                "fields": "pixelSize"
+            }
+        })
+        
+        for i, width in enumerate(column_widths):
+            requests.append({
+                "updateDimensionProperties": {
+                    "range": {
+                        "sheetId": worksheet_positions.id,
+                        "dimension": "COLUMNS",
+                        "startIndex": i,
+                        "endIndex": i + 1
+                    },
+                    "properties": width,
+                    "fields": "pixelSize"
+                }
+            })
         
         # Фильтры и закрепление
-        worksheet_positions.set_basic_filter(1, 1, worksheet_positions.row_count, worksheet_positions.col_count)
-        worksheet_positions.freeze(rows=1)
+        requests.extend([
+            {
+                "setBasicFilter": {
+                    "filter": {
+                        "range": {
+                            "sheetId": worksheet_positions.id,
+                            "startRowIndex": 0,
+                            "endRowIndex": last_row,
+                            "startColumnIndex": 0,
+                            "endColumnIndex": 32
+                        }
+                    }
+                }
+            },
+            {
+                "updateSheetProperties": {
+                    "properties": {
+                        "sheetId": worksheet_positions.id,
+                        "gridProperties": {"frozenRowCount": 1}
+                    },
+                    "fields": "gridProperties.frozenRowCount"
+                }
+            }
+        ])
+        
+        # Применяем все запросы
+        sh.batch_update({"requests": requests})
         
         # Удаляем пустой лист
         if len(sh.worksheets()) > 2:
