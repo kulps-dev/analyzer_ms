@@ -1085,8 +1085,8 @@ async def export_to_gsheet(date_range: DateRange):
         # Инициализация Google Sheets API
         gc = gspread.service_account(filename=GOOGLE_CREDS_PATH)
         
-        # Создаем новую таблицу с красивым названием
-        title = f"Отчет по отгрузкам {date_range.start_date.replace('-','.')} - {date_range.end_date.replace('-','.')}"
+        # Создаем новую таблицу
+        title = f"Отчет по отгрузкам {date_range.start_date} - {date_range.end_date}"
         sh = gc.create(title)
         
         # Настройки доступа
@@ -1098,7 +1098,7 @@ async def export_to_gsheet(date_range: DateRange):
         
         # ===== 1. ЛИСТ С ОТГРУЗКАМИ =====
         worksheet_demands = sh.get_worksheet(0)
-        worksheet_demands.update_title("📊 Отгрузки")
+        worksheet_demands.update_title("Отгрузки")
         
         # Получаем данные
         cur.execute("""
@@ -1140,16 +1140,14 @@ async def export_to_gsheet(date_range: DateRange):
         
         demands = cur.fetchall()
         
-        # Заголовки с эмодзи
+        # Заголовки
         demands_headers = [
-            "🔢 Номер", "📅 Дата", "👤 Контрагент", "🏪 Склад", "📌 Проект", 
-            "📡 Канал продаж", "💰 Сумма", "🏷 Себестоимость", "📦 Накладные", 
-            "💵 Прибыль", "🎁 Акц. период", "🚚 Доставка", "🖥 Адмидат",
-            "🐘 ГдеСлон", "🏙 CityAds", "🟣 Ozon", "🟣 Ozon FBS", 
-            "🟧 Я.Маркет FBS", "🟧 Я.Маркет DBS", "🔵 Я.Директ", 
-            "🔴 Price ru", "🟣 Wildberries", "🗺 2ГИС", "🔍 SEO",
-            "📺 Программатик", "🟧 Авито", "🔄 Мультизаказы", 
-            "🎯 Примерная скидка", "🟢 Статус", "📝 Комментарий"
+            "Номер", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
+            "Сумма", "Себестоимость", "Накладные", "Прибыль", "Акционный период",
+            "Сумма доставки", "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS",
+            "Я.Маркет FBS", "Я.Маркет DBS", "Я.Директ", "Price ru", "Wildberries",
+            "2ГИС", "SEO", "Программатик", "Авито", "Мультизаказы", "Примерная скидка",
+            "Статус", "Комментарий"
         ]
         
         # Добавляем данные
@@ -1158,10 +1156,10 @@ async def export_to_gsheet(date_range: DateRange):
             worksheet_demands.append_row(list(row))
         
         # Форматируем лист с отгрузками
-        await format_demands_sheet(worksheet_demands, len(demands))
+        format_simple_sheet(worksheet_demands, color=(0.13, 0.38, 0.58))
         
         # ===== 2. ЛИСТ С ТОВАРАМИ =====
-        worksheet_positions = sh.add_worksheet(title="🛍 Товары", rows="1000", cols="30")
+        worksheet_positions = sh.add_worksheet(title="Товары", rows=1000, cols=30)
         
         # Получаем данные
         cur.execute("""
@@ -1208,61 +1206,49 @@ async def export_to_gsheet(date_range: DateRange):
         positions = cur.fetchall()
         conn.close()
         
-        # Заголовки с эмодзи
+        # Заголовки
         positions_headers = [
-            "🔢 Номер", "📅 Дата", "👤 Контрагент", "🏪 Склад", "📌 Проект", 
-            "📡 Канал", "🛍 Товар", "🧮 Кол-во", "🏷 Цена", "💰 Сумма", 
-            "📉 Себестоимость", "🔖 Артикул", "⌨ Код", "📦 Накладные", 
-            "💵 Прибыль", "🎁 Акц. период", "🚚 Доставка", "🖥 Адмидат",
-            "🐘 ГдеСлон", "🏙 CityAds", "🟣 Ozon", "🟣 Ozon FBS", 
-            "🟧 Я.Маркет FBS", "🟧 Я.Маркет DBS", "🔵 Я.Директ", 
-            "🔴 Price ru", "🟣 Wildberries", "🗺 2ГИС", "🔍 SEO",
-            "📺 Программатик", "🟧 Авито", "🔄 Мультизаказы", 
-            "🎯 Примерная скидка"
+            "Номер", "Дата", "Контрагент", "Склад", "Проект", "Канал",
+            "Товар", "Кол-во", "Цена", "Сумма", "Себестоимость", "Артикул", "Код",
+            "Накладные", "Прибыль", "Акц. период", "Доставка", "Адмидат",
+            "ГдеСлон", "CityAds", "Ozon", "Ozon FBS", "Я.Маркет FBS", "Я.Маркет DBS",
+            "Я.Директ", "Price ru", "Wildberries", "2ГИС", "SEO", "Программатик", "Авито",
+            "Мультизаказы", "Примерная скидка"
         ]
         
-        # Добавляем данные с группировкой
+        # Добавляем данные
         worksheet_positions.append_row(positions_headers)
         current_demand = None
         
         for row in positions:
             demand_number = row[0]
             
-            # Добавляем строку с итогами по отгрузке
             if demand_number != current_demand:
                 current_demand = demand_number
                 worksheet_positions.append_row([
                     demand_number, row[1], row[2], row[3], row[4], row[5],
-                    "📌 ИТОГО ПО ОТГРУЗКЕ", "", "", row[9], row[10], "", "",
+                    "ИТОГО ПО ОТГРУЗКЕ", "", "", row[9], row[10], "", "",
                     row[13], row[14], row[15], row[16], row[17], row[18],
                     row[19], row[20], row[21], row[22], row[23], row[24],
                     row[25], row[26], row[27], row[28], row[29], row[30],
                     row[31]
                 ])
             
-            # Добавляем позицию товара
             worksheet_positions.append_row([
-                "", "", "", "", "", "",  # Пустые поля для заголовков
+                "", "", "", "", "", "",
                 row[6], row[7], row[8], row[9], row[10], row[11], row[12],
                 "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""
             ])
         
         # Форматируем лист с товарами
-        await format_positions_sheet(worksheet_positions, len(positions))
+        format_simple_sheet(worksheet_positions, color=(0.23, 0.52, 0.23))
         
-        # ===== 3. НАСТРОЙКА ТАБЛИЦЫ =====
         # Удаляем пустой лист по умолчанию
         if len(sh.worksheets()) > 2:
             sh.del_worksheet(sh.get_worksheet(2))
         
-        # Устанавливаем первый лист активным
-        sh.reorder_worksheets([worksheet_demands, worksheet_positions])
-        
-        logger.info(f"✅ Таблица создана: {sh.url}")
-        return {
-            "url": sh.url,
-            "message": "Google Таблица успешно создана и оформлена"
-        }
+        logger.info(f"Таблица создана: {sh.url}")
+        return {"url": sh.url}
         
     except Exception as e:
         logger.error(f"Ошибка при экспорте: {str(e)}")
@@ -1271,319 +1257,40 @@ async def export_to_gsheet(date_range: DateRange):
             content={"detail": f"Ошибка при создании таблицы: {str(e)}"}
         )
 
-async def format_demands_sheet(worksheet, rows_count):
-    """Красивое форматирование листа с отгрузками"""
-    requests = []
-    
-    # 1. Форматирование заголовков
-    requests.append({
-        "repeatCell": {
-            "range": {
-                "sheetId": worksheet.id,
-                "startRowIndex": 0,
-                "endRowIndex": 1
-            },
-            "cell": {
-                "userEnteredFormat": {
-                    "backgroundColor": {"red": 0.13, "green": 0.38, "blue": 0.58},
-                    "textFormat": {
-                        "foregroundColor": {"red": 1, "green": 1, "blue": 1},
-                        "bold": True,
-                        "fontSize": 10
-                    },
-                    "horizontalAlignment": "CENTER",
-                    "verticalAlignment": "MIDDLE",
-                    "wrapStrategy": "WRAP"
-                }
-            },
-            "fields": "userEnteredFormat"
+def format_simple_sheet(worksheet, color):
+    """Упрощенное форматирование листа"""
+    # Форматирование заголовков
+    worksheet.format("A1:Z1", {
+        "backgroundColor": {
+            "red": color[0],
+            "green": color[1],
+            "blue": color[2]
+        },
+        "horizontalAlignment": "CENTER",
+        "textFormat": {
+            "foregroundColor": {"red": 1, "green": 1, "blue": 1},
+            "bold": True,
+            "fontSize": 10
         }
     })
     
-    # 2. Форматирование числовых данных (столбцы G-J, L-AA)
-    for col in [6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27]:
-        requests.append({
-            "repeatCell": {
-                "range": {
-                    "sheetId": worksheet.id,
-                    "startRowIndex": 1,
-                    "endRowIndex": rows_count + 1,
-                    "startColumnIndex": col,
-                    "endColumnIndex": col + 1
-                },
-                "cell": {
-                    "userEnteredFormat": {
-                        "numberFormat": {"type": "NUMBER", "pattern": "#,##0.00"},
-                        "horizontalAlignment": "RIGHT"
-                    }
-                },
-                "fields": "userEnteredFormat"
-            }
-        })
-    
-    # 3. Форматирование даты (столбец B)
-    requests.append({
-        "repeatCell": {
-            "range": {
-                "sheetId": worksheet.id,
-                "startRowIndex": 1,
-                "endRowIndex": rows_count + 1,
-                "startColumnIndex": 1,
-                "endColumnIndex": 2
-            },
-            "cell": {
-                "userEnteredFormat": {
-                    "numberFormat": {"type": "DATE", "pattern": "dd.mm.yyyy hh:mm"},
-                    "horizontalAlignment": "CENTER"
-                }
-            },
-            "fields": "userEnteredFormat"
-        }
+    # Числовое форматирование
+    worksheet.format("G2:Z1000", {
+        "numberFormat": {"type": "NUMBER", "pattern": "#,##0.00"},
+        "horizontalAlignment": "RIGHT"
     })
     
-    # 4. Форматирование текстовых столбцов (A, C-F, AB-AD)
-    for col in [0, 2, 3, 4, 5, 28, 29]:
-        requests.append({
-            "repeatCell": {
-                "range": {
-                    "sheetId": worksheet.id,
-                    "startRowIndex": 1,
-                    "endRowIndex": rows_count + 1,
-                    "startColumnIndex": col,
-                    "endColumnIndex": col + 1
-                },
-                "cell": {
-                    "userEnteredFormat": {
-                        "horizontalAlignment": "LEFT",
-                        "wrapStrategy": "WRAP"
-                    }
-                },
-                "fields": "userEnteredFormat"
-            }
-        })
-    
-    # 5. Чередующаяся заливка строк
-    requests.append({
-        "addBanding": {
-            "bandedRange": {
-                "range": {
-                    "sheetId": worksheet.id,
-                    "startRowIndex": 1,
-                    "endRowIndex": rows_count + 1
-                },
-                "rowProperties": {
-                    "headerColor": {"red": 0.13, "green": 0.38, "blue": 0.58},
-                    "firstBandColor": {"red": 1, "green": 1, "blue": 1},
-                    "secondBandColor": {"red": 0.93, "green": 0.96, "blue": 0.98}
-                }
-            }
-        }
+    # Форматирование дат
+    worksheet.format("B2:B1000", {
+        "numberFormat": {"type": "DATE", "pattern": "dd.mm.yyyy hh:mm"},
+        "horizontalAlignment": "CENTER"
     })
     
-    # 6. Автофильтр
-    requests.append({
-        "setBasicFilter": {
-            "filter": {
-                "range": {
-                    "sheetId": worksheet.id,
-                    "startRowIndex": 0,
-                    "endRowIndex": rows_count + 1
-                }
-            }
-        }
-    })
+    # Автоподбор ширины столбцов
+    worksheet.columns_auto_resize(0, 30)
     
-    # 7. Замораживаем заголовки
-    requests.append({
-        "updateSheetProperties": {
-            "properties": {
-                "sheetId": worksheet.id,
-                "gridProperties": {"frozenRowCount": 1}
-            },
-            "fields": "gridProperties.frozenRowCount"
-        }
-    })
+    # Добавляем фильтр
+    worksheet.set_basic_filter(1, 0, worksheet.row_count, worksheet.col_count - 1)
     
-    # 8. Автоподбор ширины столбцов
-    requests.append({
-        "autoResizeDimensions": {
-            "dimensions": {
-                "sheetId": worksheet.id,
-                "dimension": "COLUMNS",
-                "startIndex": 0,
-                "endIndex": 30
-            }
-        }
-    })
-    
-    # Выполняем все запросы форматирования
-    worksheet.spreadsheet.batch_update({"requests": requests})
-
-async def format_positions_sheet(worksheet, rows_count):
-    """Красивое форматирование листа с товарами"""
-    requests = []
-    
-    # 1. Форматирование заголовков
-    requests.append({
-        "repeatCell": {
-            "range": {
-                "sheetId": worksheet.id,
-                "startRowIndex": 0,
-                "endRowIndex": 1
-            },
-            "cell": {
-                "userEnteredFormat": {
-                    "backgroundColor": {"red": 0.23, "green": 0.52, "blue": 0.23},
-                    "textFormat": {
-                        "foregroundColor": {"red": 1, "green": 1, "blue": 1},
-                        "bold": True,
-                        "fontSize": 10
-                    },
-                    "horizontalAlignment": "CENTER",
-                    "verticalAlignment": "MIDDLE",
-                    "wrapStrategy": "WRAP"
-                }
-            },
-            "fields": "userEnteredFormat"
-        }
-    })
-    
-    # 2. Форматирование числовых данных (столбцы G-J, N-AF)
-    for col in [6, 7, 8, 9, 10, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]:
-        requests.append({
-            "repeatCell": {
-                "range": {
-                    "sheetId": worksheet.id,
-                    "startRowIndex": 1,
-                    "endRowIndex": rows_count + 1,
-                    "startColumnIndex": col,
-                    "endColumnIndex": col + 1
-                },
-                "cell": {
-                    "userEnteredFormat": {
-                        "numberFormat": {"type": "NUMBER", "pattern": "#,##0.00"},
-                        "horizontalAlignment": "RIGHT"
-                    }
-                },
-                "fields": "userEnteredFormat"
-            }
-        })
-    
-    # 3. Форматирование даты (столбец B)
-    requests.append({
-        "repeatCell": {
-            "range": {
-                "sheetId": worksheet.id,
-                "startRowIndex": 1,
-                "endRowIndex": rows_count + 1,
-                "startColumnIndex": 1,
-                "endColumnIndex": 2
-            },
-            "cell": {
-                "userEnteredFormat": {
-                    "numberFormat": {"type": "DATE", "pattern": "dd.mm.yyyy hh:mm"},
-                    "horizontalAlignment": "CENTER"
-                }
-            },
-            "fields": "userEnteredFormat"
-        }
-    })
-    
-    # 4. Форматирование текстовых столбцов (A, C-F, K-L)
-    for col in [0, 2, 3, 4, 5, 11, 12]:
-        requests.append({
-            "repeatCell": {
-                "range": {
-                    "sheetId": worksheet.id,
-                    "startRowIndex": 1,
-                    "endRowIndex": rows_count + 1,
-                    "startColumnIndex": col,
-                    "endColumnIndex": col + 1
-                },
-                "cell": {
-                    "userEnteredFormat": {
-                        "horizontalAlignment": "LEFT",
-                        "wrapStrategy": "WRAP"
-                    }
-                },
-                "fields": "userEnteredFormat"
-            }
-        })
-    
-    # 5. Строки с итогами
-    requests.append({
-        "repeatCell": {
-            "range": {
-                "sheetId": worksheet.id,
-                "startRowIndex": 1,
-                "endRowIndex": rows_count + 1
-            },
-            "cell": {
-                "userEnteredFormat": {
-                    "backgroundColor": {"red": 0.85, "green": 0.92, "blue": 0.83},
-                    "textFormat": {"bold": True}
-                }
-            },
-            "fields": "userEnteredFormat",
-            "predicate": {
-                "formula": '=REGEXMATCH(INDIRECT("G"&ROW()), "^📌 ИТОГО ПО ОТГРУЗКЕ")'
-            }
-        }
-    })
-    
-    # 6. Чередующаяся заливка строк
-    requests.append({
-        "addBanding": {
-            "bandedRange": {
-                "range": {
-                    "sheetId": worksheet.id,
-                    "startRowIndex": 1,
-                    "endRowIndex": rows_count + 1
-                },
-                "rowProperties": {
-                    "headerColor": {"red": 0.23, "green": 0.52, "blue": 0.23},
-                    "firstBandColor": {"red": 1, "green": 1, "blue": 1},
-                    "secondBandColor": {"red": 0.93, "green": 0.96, "blue": 0.93}
-                }
-            }
-        }
-    })
-    
-    # 7. Автофильтр
-    requests.append({
-        "setBasicFilter": {
-            "filter": {
-                "range": {
-                    "sheetId": worksheet.id,
-                    "startRowIndex": 0,
-                    "endRowIndex": rows_count + 1
-                }
-            }
-        }
-    })
-    
-    # 8. Замораживаем заголовки
-    requests.append({
-        "updateSheetProperties": {
-            "properties": {
-                "sheetId": worksheet.id,
-                "gridProperties": {"frozenRowCount": 1}
-            },
-            "fields": "gridProperties.frozenRowCount"
-        }
-    })
-    
-    # 9. Автоподбор ширины столбцов
-    requests.append({
-        "autoResizeDimensions": {
-            "dimensions": {
-                "sheetId": worksheet.id,
-                "dimension": "COLUMNS",
-                "startIndex": 0,
-                "endIndex": 32
-            }
-        }
-    })
-    
-    # Выполняем все запросы форматирования
-    worksheet.spreadsheet.batch_update({"requests": requests})
+    # Закрепляем заголовки
+    worksheet.freeze(rows=1)
