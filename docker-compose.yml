@@ -28,5 +28,4 @@ services:
       - analyzer-network
 
 networks:
-  analyzer-network:
-    driver: bridge
+  analyzer-net

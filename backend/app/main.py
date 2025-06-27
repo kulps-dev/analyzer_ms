@@ -1085,7 +1085,7 @@ async def export_to_gsheet(date_range: DateRange):
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # Запрос с преобразованием datetime в строку
+        # Исправленный запрос без русских комментариев
         cur.execute("""
             SELECT 
                 number, 
@@ -1103,7 +1103,7 @@ async def export_to_gsheet(date_range: DateRange):
             FROM demands
             WHERE date BETWEEN %s AND %s
             ORDER BY date DESC
-            LIMIT 100  # Ограничиваем для теста
+            LIMIT 100
         """, (date_range.start_date, date_range.end_date))
         
         demands = cur.fetchall()
@@ -1128,12 +1128,6 @@ async def export_to_gsheet(date_range: DateRange):
         logger.info(f"Таблица создана: {sh.url}")
         return {"url": sh.url}
         
-    except gspread.exceptions.APIError as e:
-        logger.error(f"Ошибка API Google: {str(e)}")
-        return JSONResponse(
-            status_code=500,
-            content={"detail": f"Ошибка Google API: {str(e)}"}
-        )
     except Exception as e:
         logger.error(f"Ошибка при экспорте: {str(e)}")
         return JSONResponse(
