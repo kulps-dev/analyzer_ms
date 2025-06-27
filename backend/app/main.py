@@ -1077,8 +1077,7 @@ async def export_to_gsheet(date_range: DateRange):
             logger.error("Файл учетных данных не найден!")
             return JSONResponse(
                 status_code=500,
-                content={"detail": "Файл учетных данных Google не найден"},
-                encoder=DecimalEncoder
+                content={"detail": "Файл учетных данных Google не найден"}
             )
 
         logger.info("Инициализация Google Sheets API...")
@@ -1133,15 +1132,11 @@ async def export_to_gsheet(date_range: DateRange):
             worksheet.append_row(list(row))
         
         logger.info(f"Таблица создана: {sh.url}")
-        return JSONResponse(
-            content={"url": sh.url},
-            encoder=DecimalEncoder
-        )
+        return {"url": sh.url}
         
     except Exception as e:
         logger.error(f"Ошибка при экспорте: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={"detail": f"Ошибка при создании таблицы: {str(e)}"},
-            encoder=DecimalEncoder
+            content={"detail": f"Ошибка при создании таблицы: {str(e)}"}
         )
