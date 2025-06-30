@@ -71,6 +71,15 @@ class WebhookData(BaseModel):
     class Config:
         extra = "allow"  # Разрешает дополнительные поля
 
+class WebhookEvent(BaseModel):
+    meta: dict
+    action: str
+    accountId: str
+
+class WebhookData(BaseModel):
+    auditContext: dict
+    events: List[WebhookEvent]
+
 # Глобальный словарь для хранения статусов задач
 tasks_status = {}
 
@@ -1819,39 +1828,50 @@ async def export_to_gsheet(date_range: DateRange):
         )
 
 @app.post("/api/webhook")
-async def handle_moysklad_webhook(request: Request):
-    """Обработчик вебхука с raw JSON"""
+async def handle_moysklad_webhook(webhook_data: WebhookData):
     try:
-        data = await request.json()  # Получаем сырые данные
-        logger.info(f"Получен вебхук: {data}")
-
-        # Проверяем тип сущности
-        if data.get("entityType") != "demand":
-            return {"status": "ignored"}
-
-        demand_id = data.get("id")
-        if not demand_id:
-            return {"status": "error", "message": "No ID provided"}
-
-        # Далее ваша логика обработки...
-        demand = moysklad.get_demand_by_id(demand_id)
-        if not demand:
-            return {"status": "error", "message": "Demand not found"}
-
-        # Обновляем БД
-        demand_data = prepare_demand_data(demand)
-        positions = demand.get("positions", [])
-        positions_data = [prepare_position_data(demand, pos) for pos in positions]
-
-        conn = get_db_connection()
-        cur = conn.cursor()
-        await insert_demands_batch(cur, [demand_data])
-        await insert_positions_batch(cur, positions_data)
-        conn.commit()
-        conn.close()
-
+        logger.info(f"Получен вебхук: {webhook_data}")
+        
+        # Обрабатываем каждое событие
+        for event in webhook_data.events:
+            if event.meta.get('type') != 'demand':
+                continue
+                
+            demand_id = event.meta['href'].split('/')[-1]  # Извлекаем ID из URL
+            logger.info(f"Обработка отгрузки: {demand_id}")
+            
+            # Получаем данные отгрузки
+            demand = moysklad.get_demand_by_id(demand_id)
+            if not demand:
+                logger.error(f"Отгрузка {demand_id} не найдена")
+                continue
+                
+            # Обновляем данные в БД
+            demand_values = prepare_demand_data(demand)
+            positions = demand.get("positions", [])
+            positions_values = [prepare_position_data(demand, pos) for pos in positions]
+            
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                await insert_demands_batch(cur, [demand_values])
+                
+                # Удаляем старые позиции и добавляем новые
+                cur.execute("DELETE FROM demand_positions WHERE demand_id = %s", (demand_id,))
+                if positions_values:
+                    await insert_positions_batch(cur, positions_values)
+                
+                conn.commit()
+                logger.info(f"Отгрузка {demand_id} успешно обновлена")
+                
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"Ошибка БД: {str(e)}")
+            finally:
+                conn.close()
+                
         return {"status": "success"}
-
+        
     except Exception as e:
-        logger.error(f"Ошибка: {str(e)}")
+        logger.error(f"Ошибка обработки: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
