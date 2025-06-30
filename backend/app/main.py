@@ -1813,7 +1813,7 @@ async def export_to_gsheet(date_range: DateRange):
             content={"detail": f"Ошибка при создании таблицы: {str(e)}"}
         )
 
-@app.post("/webhook/moysklad")
+@app.post("/api/webhook")  # Теперь совпадает с URL вебхука
 async def handle_moysklad_webhook(webhook_data: WebhookData):
     """Endpoint для обработки вебхуков от МойСклад"""
     try:
