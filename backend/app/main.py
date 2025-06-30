@@ -1829,104 +1829,100 @@ async def export_to_gsheet(date_range: DateRange):
 
 @app.post("/api/webhook")
 async def handle_moysklad_webhook(webhook_data: WebhookData):
-    """Улучшенный обработчик вебхуков с исправлением проблемы позиций"""
     try:
         logger.info(f"Начало обработки вебхука. Событий: {len(webhook_data.events)}")
         
         for event in webhook_data.events:
+            if not event.meta or event.meta.get('type') != 'demand':
+                continue
+
+            demand_id = event.meta.get('href', '').split('/')[-1]
+            if not demand_id:
+                continue
+
+            logger.info(f"Обработка отгрузки {demand_id}")
+
             try:
-                # Проверка типа события
-                if not event.meta or event.meta.get('type') != 'demand':
-                    continue
-
-                # Извлечение ID отгрузки
-                demand_url = event.meta.get('href', '')
-                demand_id = demand_url.split('/')[-1] if demand_url else None
-                if not demand_id:
-                    logger.error(f"Неверный URL отгрузки: {demand_url}")
-                    continue
-
-                logger.info(f"Обработка отгрузки {demand_id} ({event.action})")
-
-                # Получение данных отгрузки
-                try:
-                    demand = moysklad.get_demand_by_id(demand_id)
-                    if not demand:
-                        continue
-                        
-                    logger.info(f"Отгрузка получена. Номер: {demand.get('name')}, сумма: {demand.get('sum', 0)/100} руб")
-                except Exception as e:
-                    logger.error(f"Ошибка API: {str(e)}")
+                # Получаем отгрузку с расширенными данными позиций
+                demand = moysklad.get_demand_by_id(demand_id)
+                if not demand:
                     continue
 
                 # Подготовка данных
-                try:
-                    demand_values = prepare_demand_data(demand)
-                    if not demand_values:
-                        continue
-                except Exception as e:
-                    logger.error(f"Ошибка подготовки данных: {str(e)}")
+                demand_values = prepare_demand_data(demand)
+                if not demand_values:
                     continue
 
-                # Обработка позиций (исправленная версия)
-                positions_values = []
+                # Обработка позиций (новый улучшенный блок)
                 positions = demand.get('positions', {})
                 
-                # Новый блок обработки разных форматов позиций
+                # Преобразуем разные форматы в единый список
                 if isinstance(positions, dict):
-                    # Если позиции пришли как словарь
                     if 'rows' in positions:
-                        positions = positions['rows']  # Формат с пагинацией
+                        positions = positions['rows']  # Пагинированный ответ
                     elif 'meta' in positions:
-                        positions = []  # Пустой результат
+                        positions = []  # Пустой ответ с метаданными
                     else:
                         positions = [positions]  # Единственная позиция
                 elif not isinstance(positions, list):
                     positions = []  # Неизвестный формат
+
+                logger.info(f"Найдено позиций: {len(positions)}")
                 
-                logger.info(f"Обработка {len(positions)} позиций")
-                
+                # Подготовка данных позиций
+                positions_values = []
                 for pos in positions:
                     try:
                         if not isinstance(pos, dict):
+                            logger.warning(f"Некорректный формат позиции: {type(pos)}")
                             continue
                             
+                        # Добавляем отладочное логирование
+                        logger.debug(f"Обработка позиции: {pos.get('id')}, товар: {pos.get('assortment', {}).get('name')}")
+                        
                         pos_data = prepare_position_data(demand, pos)
                         if pos_data:
                             positions_values.append(pos_data)
                     except Exception as e:
-                        logger.warning(f"Ошибка позиции: {str(e)}")
+                        logger.error(f"Ошибка подготовки позиции: {str(e)}")
 
-                # Сохранение в БД
+                # Сохранение в БД (улучшенная версия)
                 conn = None
                 try:
                     conn = get_db_connection()
                     cur = conn.cursor()
                     
+                    # 1. Обновляем заголовок отгрузки
                     await insert_demands_batch(cur, [demand_values])
-                    cur.execute("DELETE FROM demand_positions WHERE demand_id = %s", (demand_id,))
                     
+                    # 2. Обновляем позиции только если они есть
                     if positions_values:
+                        # Сначала удаляем старые
+                        cur.execute("DELETE FROM demand_positions WHERE demand_id = %s", (demand_id,))
+                        # Затем добавляем новые
                         await insert_positions_batch(cur, positions_values)
-                        logger.info(f"Сохранено позиций: {len(positions_values)}")
+                        logger.info(f"Успешно сохранено позиций: {len(positions_values)}")
+                    else:
+                        logger.warning("Нет данных позиций для сохранения")
                     
                     conn.commit()
-                    logger.info(f"Отгрузка {demand_id} успешно обновлена")
+                    logger.info(f"Отгрузка {demand_id} полностью обновлена")
                     
                 except Exception as e:
+                    logger.error(f"Ошибка БД: {str(e)}")
                     if conn:
                         conn.rollback()
-                    logger.error(f"Ошибка БД: {str(e)}")
+                    raise
                 finally:
                     if conn:
                         conn.close()
                         
             except Exception as e:
-                logger.error(f"Ошибка обработки события: {str(e)}")
+                logger.error(f"Ошибка обработки отгрузки: {str(e)}")
                 continue
                 
-        return {"status": "success", "processed": True}
+        return {"status": "success", "details": "Processing completed"}
         
     except Exception as e:
-        logger.critical(f"Критическая ошибка: {str(e)}")
+        logger.critical(f"Фатальная ошибка: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

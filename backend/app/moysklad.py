@@ -49,12 +49,22 @@ class MoyskladAPI:
                 time.sleep(self.retry_delay * (attempt + 1))
         raise Exception("All retry attempts failed")
 
-    def get_demand_by_id(self, demand_id: str) -> Dict[str, Any]:
-        """Получает полные данные отгрузки по ID"""
+    def get_demand_by_id(self, demand_id):
+        logger.info(f"Запрос отгрузки {demand_id} с позициями...")
         url = f"{self.base_url}/entity/demand/{demand_id}"
-        response = self._make_request("GET", url)
-        response.raise_for_status()
-        return response.json()
+        params = {
+            'expand': 'positions,positions.assortment',
+            'limit': 1000
+        }
+        try:
+            response = self._make_request("GET", url, params=params)
+            data = response.json()
+            logger.info(f"Данные отгрузки: {data.get('name')}, позиций: {len(data.get('positions', []))}")
+            logger.debug(f"Первая позиция: {data.get('positions', [])[:1]}")
+            return data
+        except Exception as e:
+            logger.error(f"Ошибка получения отгрузки: {str(e)}")
+            raise
 
     def get_paginated_data(self, url: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """Получение данных с пагинацией"""
