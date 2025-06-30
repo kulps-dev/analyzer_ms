@@ -127,14 +127,7 @@ class MoyskladAPI:
         
         except Exception as e:
             logger.error(f"Ошибка при получении отгрузок: {str(e)}")
-            raise
-
-    def get_demand_by_id(self, demand_id: str) -> Dict[str, Any]:
-    """Получает полные данные отгрузки по ID"""
-    url = f"{self.base_url}/entity/demand/{demand_id}"
-    response = self._make_request("GET", url)
-    response.raise_for_status()
-    return response.json()        
+            raise      
 
     def get_demand_positions(self, demand_id: str) -> List[Dict[str, Any]]:
         """Получить позиции отгрузки с обогащенными данными о товарах"""
@@ -309,3 +302,10 @@ class MoyskladAPI:
 
         except Exception as e:
             logger.error(f"Ошибка при пакетном обогащении данных: {str(e)}")
+
+        def get_demand_by_id(self, demand_id: str) -> Dict[str, Any]:
+    """Получает полные данные отгрузки по ID"""
+    url = f"{self.base_url}/entity/demand/{demand_id}"
+    response = self._make_request("GET", url)
+    response.raise_for_status()
+    return response.json()  
