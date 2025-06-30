@@ -60,6 +60,12 @@ class BatchProcessResponse(BaseModel):
     status: str
     message: str
 
+class WebhookData(BaseModel):
+    accountId: str
+    action: str
+    entityType: str
+    id: str
+
 # Глобальный словарь для хранения статусов задач
 tasks_status = {}
 
@@ -1806,3 +1812,56 @@ async def export_to_gsheet(date_range: DateRange):
             status_code=500,
             content={"detail": f"Ошибка при создании таблицы: {str(e)}"}
         )
+
+@app.post("/webhook/moysklad")
+async def handle_moysklad_webhook(webhook_data: WebhookData):
+    """Endpoint для обработки вебхуков от МойСклад"""
+    try:
+        logger.info(f"Получен вебхук: {webhook_data}")
+        
+        # Проверяем, что это вебхук для отгрузки (demand)
+        if webhook_data.entityType != "demand":
+            logger.info(f"Игнорируем вебхук для типа {webhook_data.entityType}")
+            return {"status": "ignored", "message": "Not a demand webhook"}
+        
+        # Получаем полные данные отгрузки из МойСклад
+        demand = moysklad.get_demand_by_id(webhook_data.id)
+        if not demand:
+            logger.error(f"Отгрузка с ID {webhook_data.id} не найдена в МойСклад")
+            return {"status": "error", "message": "Demand not found in Moysklad"}
+        
+        # Подготавливаем данные для обновления
+        demand_values = prepare_demand_data(demand)
+        positions = demand.get("positions", [])
+        positions_values = [prepare_position_data(demand, pos) for pos in positions]
+        
+        # Обновляем данные в базе
+        conn = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            
+            # Обновляем отгрузку
+            await insert_demands_batch(cur, [demand_values])
+            
+            # Обновляем позиции (сначала удаляем старые)
+            cur.execute("DELETE FROM demand_positions WHERE demand_id = %s", (webhook_data.id,))
+            if positions_values:
+                await insert_positions_batch(cur, positions_values)
+            
+            conn.commit()
+            logger.info(f"Успешно обновлена отгрузка {webhook_data.id}")
+            return {"status": "success", "message": "Demand updated"}
+            
+        except Exception as e:
+            logger.error(f"Ошибка при обновлении отгрузки: {str(e)}")
+            if conn:
+                conn.rollback()
+            return {"status": "error", "message": str(e)}
+        finally:
+            if conn:
+                conn.close()
+                
+    except Exception as e:
+        logger.error(f"Ошибка обработки вебхука: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
