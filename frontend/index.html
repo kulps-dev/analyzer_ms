@@ -44,6 +44,21 @@
               </button>
         </div>
 
+        <div class="card webhook-card animate__animated animate__fadeIn">
+            <h2><i class="fas fa-bell"></i> Вебхук уведомлений</h2>
+            <div class="form-group">
+                <label class="switch">
+                    <input type="checkbox" id="webhook-toggle">
+                    <span class="slider round"></span>
+                </label>
+                <span id="webhook-status">Вебхук выключен</span>
+            </div>
+            <div class="form-group" id="webhook-url-container" style="display: none;">
+                <label for="webhook-url"><i class="fas fa-link"></i> URL вебхука:</label>
+                <input type="text" id="webhook-url" class="form-control" placeholder="https://example.com/webhook">
+            </div>
+        </div>
+
         <div class="status-bar" id="status-bar">
             <i class="fas fa-check-circle"></i> Готов к работе
         </div>
