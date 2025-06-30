@@ -1829,78 +1829,125 @@ async def export_to_gsheet(date_range: DateRange):
 
 @app.post("/api/webhook")
 async def handle_moysklad_webhook(webhook_data: WebhookData):
+    """Обработчик вебхуков от МойСклад с полной обработкой ошибок"""
     try:
-        logger.info(f"Получен вебхук: {webhook_data}")
+        logger.info(f"Получен вебхук. Тип события: {webhook_data.events[0].action if webhook_data.events else 'нет событий'}")
         
+        # Обрабатываем каждое событие в вебхуке
         for event in webhook_data.events:
-            if event.meta.get('type') != 'demand':
-                continue
-
-            # Извлекаем ID отгрузки из URL
-            demand_url = event.meta['href']
-            demand_id = demand_url.split('/')[-1] if isinstance(demand_url, str) else None
-            
-            if not demand_id:
-                logger.error(f"Не удалось извлечь ID из URL: {demand_url}")
-                continue
-
-            logger.info(f"Обработка отгрузки: {demand_id}")
-            
             try:
-                # Получаем полные данные отгрузки
-                demand = moysklad.get_demand_by_id(demand_id)
-                if not demand or not isinstance(demand, dict):
-                    logger.error(f"Отгрузка {demand_id} не найдена или некорректный формат")
+                # Проверяем, что это событие для отгрузки (demand)
+                if not event.meta or event.meta.get('type') != 'demand':
+                    logger.info(f"Пропускаем событие типа: {event.meta.get('type') if event.meta else 'нет meta'}")
+                    continue
+
+                # Извлекаем ID отгрузки из URL
+                demand_url = event.meta.get('href', '')
+                if not demand_url:
+                    logger.error("URL отгрузки отсутствует в meta")
                     continue
                     
-                # Подготавливаем данные для БД
-                demand_values = prepare_demand_data(demand)
-                if not demand_values:
-                    logger.error(f"Ошибка подготовки данных для отгрузки {demand_id}")
+                demand_id = demand_url.split('/')[-1]
+                if not demand_id:
+                    logger.error(f"Не удалось извлечь ID из URL: {demand_url}")
                     continue
 
-                # Получаем позиции
-                positions = demand.get('positions', [])
-                if not isinstance(positions, list):
-                    logger.error(f"Некорректный формат позиций для отгрузки {demand_id}")
-                    positions = []
+                logger.info(f"Начало обработки отгрузки: {demand_id}")
                 
-                positions_values = []
-                for pos in positions:
-                    if isinstance(pos, dict):
-                        try:
-                            pos_data = prepare_position_data(demand, pos)
-                            positions_values.append(pos_data)
-                        except Exception as e:
-                            logger.error(f"Ошибка подготовки позиции: {str(e)}")
-                
-                # Обновляем БД
-                conn = get_db_connection()
+                # Получаем полные данные отгрузки из API
                 try:
+                    logger.info("Запрашиваем данные отгрузки из МойСклад...")
+                    demand = moysklad.get_demand_by_id(demand_id)
+                    if not demand:
+                        logger.error(f"Отгрузка {demand_id} не найдена в API")
+                        continue
+                        
+                    logger.info(f"Получена отгрузка. Номер: {demand.get('name')}")
+                except Exception as e:
+                    logger.error(f"Ошибка при получении отгрузки: {str(e)}")
+                    continue
+
+                # Подготавливаем данные для сохранения в БД
+                try:
+                    demand_values = prepare_demand_data(demand)
+                    if not demand_values:
+                        logger.error("Не удалось подготовить данные отгрузки")
+                        continue
+                except Exception as e:
+                    logger.error(f"Ошибка подготовки данных отгрузки: {str(e)}")
+                    continue
+
+                # Обрабатываем позиции отгрузки
+                positions_values = []
+                try:
+                    positions = demand.get('positions', [])
+                    if not isinstance(positions, list):
+                        logger.warning(f"Позиции должны быть списком. Получено: {type(positions)}")
+                        positions = []
+
+                    logger.info(f"Найдено позиций: {len(positions)}")
+                    
+                    for idx, pos in enumerate(positions, 1):
+                        try:
+                            if not isinstance(pos, dict):
+                                logger.warning(f"Позиция {idx} не является словарем: {type(pos)}")
+                                continue
+                                
+                            pos_data = prepare_position_data(demand, pos)
+                            if pos_data:
+                                positions_values.append(pos_data)
+                        except Exception as e:
+                            logger.error(f"Ошибка обработки позиции {idx}: {str(e)}")
+                            continue
+                            
+                    logger.info(f"Успешно подготовлено позиций: {len(positions_values)}")
+                except Exception as e:
+                    logger.error(f"Критическая ошибка обработки позиций: {str(e)}")
+                    positions_values = []
+
+                # Сохраняем данные в БД
+                conn = None
+                try:
+                    logger.info("Начало сохранения в БД...")
+                    conn = get_db_connection()
                     cur = conn.cursor()
                     
-                    # Обновляем отгрузку
+                    # Обновляем данные отгрузки
                     await insert_demands_batch(cur, [demand_values])
                     
-                    # Обновляем позиции
+                    # Обновляем позиции (удаляем старые, добавляем новые)
+                    logger.info("Удаляем старые позиции...")
                     cur.execute("DELETE FROM demand_positions WHERE demand_id = %s", (demand_id,))
+                    
                     if positions_values:
+                        logger.info("Добавляем новые позиции...")
                         await insert_positions_batch(cur, positions_values)
                     
                     conn.commit()
-                    logger.info(f"Отгрузка {demand_id} успешно обновлена")
+                    logger.info(f"Отгрузка {demand_id} успешно обновлена в БД")
                     
                 except Exception as e:
-                    conn.rollback()
                     logger.error(f"Ошибка БД: {str(e)}")
+                    if conn:
+                        conn.rollback()
                 finally:
-                    conn.close()
-                    
+                    if conn:
+                        conn.close()
+                        logger.info("Соединение с БД закрыто")
+                        
             except Exception as e:
-                logger.error(f"Ошибка обработки отгрузки {demand_id}: {str(e)}")
+                logger.error(f"Ошибка обработки события: {str(e)}")
+                continue
                 
-        return {"status": "success"}
+        return {"status": "success", "message": "Webhook processed"}
         
     except Exception as e:
-        logger.error(f"Критическая ошибка обработки: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Критическая ошибка обработки вебхука: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "status": "error",
+                "message": "Internal server error",
+                "error": str(e)
+            }
+        )
