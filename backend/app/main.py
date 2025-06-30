@@ -661,6 +661,9 @@ async def export_excel(date_range: DateRange):
         # Лист с товарами
         await create_positions_sheet(wb, cur, date_range)
         
+        # Лист со сводным отчетом по товарам
+        await create_products_summary_sheet(wb, cur, date_range)
+        
         buffer = io.BytesIO()
         wb.save(buffer)
         buffer.seek(0)
@@ -947,14 +950,62 @@ async def create_positions_sheet(wb, cur, date_range):
             cell.value = "Общий итог:"
             cell.alignment = Alignment(horizontal='right', vertical='center')
 
+async def create_products_summary_sheet(wb, cur, date_range):
+    """Создает лист со сводным отчетом по товарам"""
+    cur.execute("""
+        SELECT 
+            dp.product_name as product,
+            dp.article,
+            dp.code,
+            SUM(dp.quantity) as total_quantity,
+            d.store,
+            d.project,
+            d.sales_channel,
+            AVG(dp.price) as avg_price,
+            SUM(dp.delivery_amount) as delivery_sum,
+            SUM(dp.amount) as total_amount,
+            SUM(dp.cost_price) as total_cost_price,
+            SUM(dp.overhead) as total_overhead,
+            SUM(dp.profit) as total_profit,
+            CASE 
+                WHEN SUM(dp.amount) = 0 THEN 0 
+                ELSE (SUM(dp.profit) / SUM(dp.amount)) * 100 
+            END as margin_percent
+        FROM demand_positions dp
+        JOIN demands d ON dp.demand_id = d.id
+        WHERE d.date BETWEEN %s AND %s
+        GROUP BY dp.product_name, dp.article, dp.code, d.store, d.project, d.sales_channel
+        ORDER BY dp.product_name, dp.article
+    """, (date_range.start_date, date_range.end_date))
+    
+    rows = cur.fetchall()
+    
+    ws = wb.create_sheet("Сводный отчет по товарам")
+    
+    # Заголовки столбцов
+    headers = [
+        "Товар", "Артикул", "Код", "Общее количество", "Склад", "Проект", "Канал продаж",
+        "Средняя цена", "Сумма оплачиваемой доставки", "Общая сумма", "Себестоимость товара",
+        "Сумма накладных расходов", "Общая прибыль", "Маржинальность"
+    ]
+    
+    apply_sheet_styling(
+        ws, 
+        headers, 
+        rows, 
+        numeric_columns=[3, 7, 8, 9, 10, 11, 12, 13],  # Индексы числовых столбцов (0-based)
+        profit_column=12,  # Столбец с прибылью
+        sheet_type="products_summary"
+    )
+
 def apply_sheet_styling(ws, headers, rows, numeric_columns, profit_column, sheet_type):
-    """Применяет стили к листу Excel"""
+    """Применяет стили к листу Excel с учетом типа листа"""
     from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
     from openpyxl.utils import get_column_letter
     
     # Шрифты
-    header_font = Font(name='Calibri', bold=True, size=12, color='FFFFFF')
-    cell_font = Font(name='Calibri', size=11)
+    header_font = Font(name='Calibri', bold=True, size=11, color='FFFFFF')
+    cell_font = Font(name='Calibri', size=10)
     
     # Выравнивание
     center_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
@@ -968,7 +1019,7 @@ def apply_sheet_styling(ws, headers, rows, numeric_columns, profit_column, sheet
                       bottom=Side(style='thin'))
     
     # Заливка
-    header_fill = PatternFill(start_color='4F81BD', end_color='4F81BD', fill_type='solid')
+    header_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
     money_fill = PatternFill(start_color='E6E6E6', end_color='E6E6E6', fill_type='solid')
     negative_fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid')
     
@@ -985,7 +1036,7 @@ def apply_sheet_styling(ws, headers, rows, numeric_columns, profit_column, sheet
         
         # Автоподбор ширины столбца
         column_letter = get_column_letter(col)
-        ws.column_dimensions[column_letter].width = max(15, len(headers[col-1]) * 1.2)
+        ws.column_dimensions[column_letter].width = max(15, len(headers[col-1]) * 1.1)
     
     # Добавляем данные и форматируем их
     for row_idx, row in enumerate(rows, start=2):
@@ -995,29 +1046,26 @@ def apply_sheet_styling(ws, headers, rows, numeric_columns, profit_column, sheet
             cell.border = thin_border
             
             # Форматирование чисел и дат
-            if col_idx in numeric_columns:  # Все числовые столбцы
+            if (col_idx - 1) in numeric_columns:  # Учитываем смещение на 1 для 1-based индексации
                 try:
                     num_value = float(value) if value not in [None, ''] else 0.0
                     cell.value = num_value
                     
-                    # Форматирование в зависимости от типа данных
-                    if sheet_type == "positions" and col_idx in [8, 9]:  # Количество и цена
-                        cell.number_format = '0.00'
+                    # Особое форматирование для маржинальности (проценты)
+                    if sheet_type == "products_summary" and col_idx == 14:
+                        cell.number_format = '0.00%'
                     else:
                         cell.number_format = '#,##0.00'
                     
                     cell.alignment = right_alignment
                     
                     # Проверяем отрицательную прибыль
-                    if col_idx == profit_column and num_value < 0:
+                    if col_idx == profit_column + 1 and num_value < 0:  # +1 т.к. profit_column 0-based
                         cell.fill = negative_fill
                     elif row_idx % 2 == 0:  # Зебра для читаемости
                         cell.fill = money_fill
                 except (ValueError, TypeError):
                     cell.alignment = left_alignment
-            elif col_idx == 2:  # Столбец с датой
-                cell.number_format = 'DD.MM.YYYY'
-                cell.alignment = center_alignment
             else:
                 cell.alignment = left_alignment
     
@@ -1039,11 +1087,21 @@ def apply_sheet_styling(ws, headers, rows, numeric_columns, profit_column, sheet
         cell.border = thin_border
         
         # Суммы для числовых столбцов
-        if col in numeric_columns:
+        if (col - 1) in numeric_columns:  # Учитываем смещение на 1 для 1-based индексации
             start_col = get_column_letter(col)
-            formula = f"SUM({start_col}2:{start_col}{last_row})"
-            cell.value = f"=ROUND({formula}, 2)"
-            cell.number_format = '#,##0.00'
+            
+            # Для столбца с маржинальностью используем средневзвешенное
+            if sheet_type == "products_summary" and col == 14:
+                total_amount_col = get_column_letter(10)  # Общая сумма (J)
+                total_profit_col = get_column_letter(13)  # Общая прибыль (M)
+                formula = f"=SUM({total_profit_col}2:{total_profit_col}{last_row})/SUM({total_amount_col}2:{total_amount_col}{last_row})"
+                cell.value = formula
+                cell.number_format = '0.00%'
+            else:
+                formula = f"SUM({start_col}2:{start_col}{last_row})"
+                cell.value = f"=ROUND({formula}, 2)"
+                cell.number_format = '#,##0.00'
+            
             cell.alignment = right_alignment
             cell.fill = PatternFill(start_color='D9D9D9', end_color='D9D9D9', fill_type='solid')
         elif col == 1:
