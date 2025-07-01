@@ -2161,13 +2161,12 @@ async def update_demand_positions(conn, demand_id: str, positions: List[Dict]):
             promo_period, delivery_amount, admin_data, gdeslon,
             cityads, ozon, ozon_fbs, yamarket_fbs, yamarket_dbs,
             yandex_direct, price_ru, wildberries, gis2, seo,
-            programmatic, avito, multiorders, estimated_discount,
-            extra_field  # Добавлено новое поле
+            programmatic, avito, multiorders, estimated_discount
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
             $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
             $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
-            $31, $32, $33, $34, $35  # Добавлен 35-й параметр
+            $31, $32, $33, $34
         )
     """
     
@@ -2209,8 +2208,7 @@ async def update_demand_positions(conn, demand_id: str, positions: List[Dict]):
                 float(pos.get('programmatic', 0)),
                 float(pos.get('avito', 0)),
                 float(pos.get('multiorders', 0)),
-                float(pos.get('estimated_discount', 0)),
-                float(pos.get('extra_field', 0))  # Добавлено новое поле
+                float(pos.get('estimated_discount', 0))
             )
             values.append(row)
         except Exception as e:
