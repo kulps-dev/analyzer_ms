@@ -25,6 +25,8 @@ from fastapi import Response
 from fastapi.responses import StreamingResponse
 from fastapi import Request
 from typing import Optional, Dict, Any, List
+import asyncpg
+from asyncpg.transaction import Transaction
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO)
