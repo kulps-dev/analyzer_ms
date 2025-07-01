@@ -28,6 +28,12 @@ from typing import Optional, Dict, Any, List
 import asyncpg
 from asyncpg.transaction import Transaction
 from datetime import datetime
+from fastapi.responses import StreamingResponse
+from io import BytesIO
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+from openpyxl.utils import get_column_letter
+import logging
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO)
@@ -735,68 +741,153 @@ async def get_task_status(task_id: str):
 
 @app.post("/api/export/excel")
 async def export_excel(date_range: DateRange):
-    conn = None
+    """Экспорт данных в Excel файл"""
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
+        logger.info(f"Начало экспорта данных с {date_range.start_date} по {date_range.end_date}")
         
-        # Создаем Excel файл
+        # Создаем Excel файл в памяти
+        output = BytesIO()
         wb = Workbook()
         
-        # Лист с отгрузками
-        await create_demands_sheet(wb, cur, date_range)
+        # Удаляем дефолтный лист, если он есть
+        if len(wb.worksheets) > 0:
+            wb.remove(wb.worksheets[0])
         
-        # Лист с товарами
-        await create_positions_sheet(wb, cur, date_range)
+        # Получаем соединение с БД
+        conn = await get_db_connection()
         
-        # Лист со сводным отчетом по товарам
-        await create_products_summary_sheet(wb, cur, date_range)
-        
-        buffer = io.BytesIO()
-        wb.save(buffer)
-        buffer.seek(0)
-        
-        return {
-            "file": buffer.read().hex(),
-            "filename": f"Отчет_по_отгрузкам_{date_range.start_date}_по_{date_range.end_date}.xlsx"
-        }
+        try:
+            # 1. Лист с отгрузками
+            await create_demands_sheet(wb, conn, date_range)
+            
+            # 2. Лист с товарами
+            await create_positions_sheet(wb, conn, date_range)
+            
+            # 3. Лист со сводным отчетом по товарам
+            await create_products_summary_sheet(wb, conn, date_range)
+            
+            # Сохраняем workbook в BytesIO
+            wb.save(output)
+            output.seek(0)
+            
+            # Формируем имя файла
+            filename = f"Отчет_по_отгрузкам_{date_range.start_date}_по_{date_range.end_date}.xlsx"
+            
+            logger.info(f"Файл {filename} успешно сформирован")
+            
+            # Возвращаем файл как поток
+            return StreamingResponse(
+                output,
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
+            
+        except Exception as e:
+            logger.error(f"Ошибка при формировании Excel: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Ошибка формирования Excel: {str(e)}")
+            
+        finally:
+            await conn.close()
+            
     except Exception as e:
+        logger.error(f"Критическая ошибка при экспорте в Excel: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if conn:
-            conn.close()
 
-async def create_demands_sheet(wb, cur, date_range):
+async def create_demands_sheet(wb: Workbook, conn, date_range: DateRange):
     """Создает лист с отгрузками"""
-    cur.execute("""
-        SELECT 
-            number, date, counterparty, store, project, sales_channel,
-            amount, cost_price, overhead, profit, promo_period, delivery_amount,
-            admin_data, gdeslon, cityads, ozon, ozon_fbs, yamarket_fbs,
-            yamarket_dbs, yandex_direct, price_ru, wildberries, gis2, seo,
-            programmatic, avito, multiorders, estimated_discount
-        FROM demands
-        WHERE date BETWEEN %s AND %s
-        ORDER BY date DESC
-    """, (date_range.start_date, date_range.end_date))
-    
-    rows = cur.fetchall()
-    
-    ws = wb.active
-    ws.title = "Отчет по отгрузкам"
-    
-    # Заголовки столбцов
-    headers = [
-        "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
-        "Сумма", "Себестоимость", "Накладные расходы", "Прибыль", "Акционный период",
-        "Сумма доставки", "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS",
-        "Яндекс Маркет FBS", "Яндекс Маркет DBS", "Яндекс Директ", "Price ru",
-        "Wildberries", "2Gis", "SEO", "Программатик", "Авито", "Мультиканальные заказы",
-        "Примерная скидка"
-    ]
-    
-    apply_sheet_styling(ws, headers, rows, numeric_columns=[7, 8, 9, 10, 12] + list(range(13, 29)), 
-                        profit_column=10, sheet_type="demands")
+    try:
+        # Получаем данные из БД
+        rows = await conn.fetch(
+            """
+            SELECT 
+                number, date, counterparty, store, project, sales_channel,
+                amount, cost_price, overhead, profit, promo_period, delivery_amount,
+                admin_data, gdeslon, cityads, ozon, ozon_fbs, yamarket_fbs,
+                yamarket_dbs, yandex_direct, price_ru, wildberries, gis2, seo,
+                programmatic, avito, multiorders, estimated_discount
+            FROM demands
+            WHERE date BETWEEN $1 AND $2
+            ORDER BY date DESC
+            """,
+            date_range.start_date, date_range.end_date
+        )
+        
+        ws = wb.create_sheet("Отгрузки")
+        
+        # Заголовки столбцов
+        headers = [
+            "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
+            "Сумма", "Себестоимость", "Накладные расходы", "Прибыль", "Акционный период",
+            "Сумма доставки", "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS",
+            "Яндекс Маркет FBS", "Яндекс Маркет DBS", "Яндекс Директ", "Price ru",
+            "Wildberries", "2Gis", "SEO", "Программатик", "Авито", "Мультиканальные заказы",
+            "Примерная скидка"
+        ]
+        
+        # Добавляем заголовки
+        ws.append(headers)
+        
+        # Применяем стили
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'),
+                            top=Side(style='thin'), bottom=Side(style='thin'))
+        
+        for col in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.border = thin_border
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            ws.column_dimensions[get_column_letter(col)].width = max(15, len(headers[col-1]) * 1.1)
+        
+        # Добавляем данные
+        for row in rows:
+            ws.append([
+                row['number'],
+                row['date'],
+                row['counterparty'],
+                row['store'],
+                row['project'],
+                row['sales_channel'],
+                float(row['amount']),
+                float(row['cost_price']),
+                float(row['overhead']),
+                float(row['profit']),
+                row['promo_period'],
+                float(row['delivery_amount']),
+                float(row['admin_data']),
+                float(row['gdeslon']),
+                float(row['cityads']),
+                float(row['ozon']),
+                float(row['ozon_fbs']),
+                float(row['yamarket_fbs']),
+                float(row['yamarket_dbs']),
+                float(row['yandex_direct']),
+                float(row['price_ru']),
+                float(row['wildberries']),
+                float(row['gis2']),
+                float(row['seo']),
+                float(row['programmatic']),
+                float(row['avito']),
+                float(row['multiorders']),
+                float(row['estimated_discount'])
+            ])
+        
+        # Форматируем числовые столбцы
+        numeric_cols = [7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]
+        for col in numeric_cols:
+            for row in range(2, ws.max_row + 1):
+                ws.cell(row=row, column=col).number_format = '#,##0.00'
+        
+        # Добавляем автофильтр
+        ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{ws.max_row}"
+        
+        logger.info(f"Лист 'Отгрузки' создан с {len(rows)} записями")
+        
+    except Exception as e:
+        logger.error(f"Ошибка при создании листа с отгрузками: {str(e)}")
+        raise
 
 async def create_positions_sheet(wb, cur, date_range):
     """Создает лист с товарами, сгруппированными по отгрузкам с себестоимостью"""
