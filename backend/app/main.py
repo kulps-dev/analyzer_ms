@@ -340,7 +340,7 @@ async def insert_demands_batch(cur, batch_values: List[Dict[str, Any]]) -> int:
                 comment = EXCLUDED.comment
         """
         
-        execute_batch(cur, query, batch_values)
+        await execute_batch(cur, query, batch_values)
         return len(batch_values)
     
     except Exception as e:
@@ -1945,27 +1945,23 @@ async def process_single_demand(demand: Dict) -> bool:
             return False
             
         # Сохраняем в БД
-        conn = get_db_connection()
-        cur = conn.cursor()
-        
-        # Обновляем заголовок отгрузки
-        await insert_demands_batch(cur, [demand_data])
-            
-        # Обновляем позиции (удаляем старые, добавляем новые)
-        await update_demand_positions(cur, demand_data['id'], positions_data)
-            
-        conn.commit()
-        logger.debug(f"Данные отгрузки {demand_data['id']} сохранены")
-        return True
+        conn = await asyncpg.connect(**DB_CONFIG)
+        async with conn.transaction():
+            # Обновляем заголовок отгрузки
+            await insert_demands_batch(conn, [demand_data])
+                
+            # Обновляем позиции (удаляем старые, добавляем новые)
+            await update_demand_positions(conn, demand_data['id'], positions_data)
+                
+            logger.debug(f"Данные отгрузки {demand_data['id']} сохранены")
+            return True
             
     except Exception as e:
         logger.error(f"Ошибка сохранения отгрузки: {str(e)}")
-        if conn:
-            conn.rollback()
         return False
     finally:
         if conn:
-            conn.close()
+            await conn.close()
 
 def update_demand_positions(cur, demand_id: str, positions: List[Dict]):
     """Обновляет позиции отгрузки в БД (синхронная версия)"""
