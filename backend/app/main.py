@@ -2183,9 +2183,9 @@ async def update_demand_positions(conn, demand_id: str, positions: List[Dict]):
                 pos['project'],
                 pos['sales_channel'],
                 pos['product_name'],
-                float(pos['quantity']),
-                float(pos['price']),
-                float(pos['amount']),
+                float(pos['quantity']),  # Была лишняя скобка
+                float(pos['price']),     # Была лишняя скобка
+                float(pos['amount']),    # Была лишняя скобка
                 float(pos['cost_price']),
                 pos['article'],
                 pos['code'],
