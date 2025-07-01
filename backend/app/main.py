@@ -745,15 +745,12 @@ async def export_excel(date_range: DateRange):
     try:
         logger.info(f"Начало экспорта данных с {date_range.start_date} по {date_range.end_date}")
         
-        # Создаем Excel файл в памяти с указанием кодировки UTF-8
         output = BytesIO()
         wb = Workbook()
         
-        # Удаляем дефолтный лист
         if len(wb.worksheets) > 0:
             wb.remove(wb.worksheets[0])
         
-        # Получаем соединение с БД
         conn = await get_db_connection()
         
         try:
@@ -761,20 +758,18 @@ async def export_excel(date_range: DateRange):
             await create_positions_sheet(wb, conn, date_range)
             await create_products_summary_sheet(wb, conn, date_range)
             
-            # Сохраняем с указанием кодировки
             wb.save(output)
             output.seek(0)
             
-            # Формируем имя файла с ASCII символами
-            filename = f"report_{date_range.start_date[:10]}_to_{date_range.end_date[:10]}.xlsx"
+            # Используем ASCII-имя файла
+            filename = f"report_{date_range.start_date[:10]}_{date_range.end_date[:10]}.xlsx"
             
-            # Возвращаем файл с правильными заголовками
             return StreamingResponse(
                 output,
                 media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 headers={
                     "Content-Disposition": f"attachment; filename={filename}",
-                    "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet; charset=utf-8"
+                    "Content-Type": "application/octet-stream"
                 }
             )
             
@@ -2158,7 +2153,6 @@ async def update_demand_positions(conn, demand_id: str, positions: List[Dict]):
     # Удаляем старые позиции
     await conn.execute("DELETE FROM demand_positions WHERE demand_id = $1", demand_id)
     
-    # Подготовка запроса - убедитесь, что количество столбцов совпадает с количеством значений
     query = """
         INSERT INTO demand_positions (
             id, demand_id, demand_number, date, counterparty, store, 
@@ -2167,50 +2161,24 @@ async def update_demand_positions(conn, demand_id: str, positions: List[Dict]):
             promo_period, delivery_amount, admin_data, gdeslon,
             cityads, ozon, ozon_fbs, yamarket_fbs, yamarket_dbs,
             yandex_direct, price_ru, wildberries, gis2, seo,
-            programmatic, avito, multiorders, estimated_discount
+            programmatic, avito, multiorders, estimated_discount,
+            extra_field  # Добавлено новое поле
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
             $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
             $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
-            $31, $32, $33, $34
+            $31, $32, $33, $34, $35  # Добавлен 35-й параметр
         )
     """
     
-    # Подготовка данных с проверкой и преобразованием типов
     values = []
     for pos in positions:
         try:
-            # Преобразование даты
-            pos_date = pos.get('date')
-            if isinstance(pos_date, str):
-                try:
-                    pos_date = datetime.strptime(pos_date, "%Y-%m-%d %H:%M:%S.%f")
-                except ValueError:
-                    pos_date = datetime.strptime(pos_date, "%Y-%m-%d %H:%M:%S")
-            
-            # Проверяем, что все обязательные поля присутствуют
-            required_fields = [
-                'id', 'demand_id', 'demand_number', 'date', 'counterparty',
-                'store', 'project', 'sales_channel', 'product_name', 'quantity',
-                'price', 'amount', 'cost_price', 'article', 'code', 'overhead',
-                'profit', 'promo_period', 'delivery_amount', 'admin_data',
-                'gdeslon', 'cityads', 'ozon', 'ozon_fbs', 'yamarket_fbs',
-                'yamarket_dbs', 'yandex_direct', 'price_ru', 'wildberries',
-                'gis2', 'seo', 'programmatic', 'avito', 'multiorders',
-                'estimated_discount'
-            ]
-            
-            # Проверяем наличие всех полей
-            for field in required_fields:
-                if field not in pos:
-                    raise ValueError(f"Отсутствует обязательное поле: {field}")
-            
-            # Формируем кортеж значений в ТОЧНОМ порядке, соответствующем запросу
             row = (
                 pos['id'],
                 pos['demand_id'],
                 pos['demand_number'],
-                pos_date,
+                pos['date'],
                 pos['counterparty'],
                 pos['store'],
                 pos['project'],
@@ -2241,30 +2209,13 @@ async def update_demand_positions(conn, demand_id: str, positions: List[Dict]):
                 float(pos.get('programmatic', 0)),
                 float(pos.get('avito', 0)),
                 float(pos.get('multiorders', 0)),
-                float(pos.get('estimated_discount', 0))
+                float(pos.get('estimated_discount', 0)),
+                float(pos.get('extra_field', 0))  # Добавлено новое поле
             )
-            
-            # Проверяем, что количество элементов совпадает с количеством параметров в запросе
-            if len(row) != 34:
-                raise ValueError(f"Несоответствие количества значений (ожидается 34, получено {len(row)})")
-            
             values.append(row)
         except Exception as e:
             logger.error(f"Ошибка подготовки позиции {pos.get('id', 'unknown')}: {str(e)}")
             continue
     
-    if not values:
-        logger.warning("Нет валидных позиций для вставки")
-        return
-    
-    try:
-        # Вставляем данные пакетами по 100 записей
-        batch_size = 100
-        for i in range(0, len(values), batch_size):
-            batch = values[i:i + batch_size]
-            await conn.executemany(query, batch)
-        
-        logger.info(f"Успешно обновлено {len(values)} позиций для отгрузки {demand_id}")
-    except Exception as e:
-        logger.error(f"Ошибка вставки позиций: {str(e)}")
-        raise
+    if values:
+        await conn.executemany(query, values)
