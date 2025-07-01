@@ -301,7 +301,7 @@ async def process_demands_batch(demands: List[Dict[str, Any]], task_id: str):
             conn.close()
 
 async def insert_demands_batch(conn, batch_values):
-    """Асинхронная массовая вставка отгрузок с обработкой даты"""
+    """Асинхронная массовая вставка отгрузок"""
     try:
         query = """
             INSERT INTO demands (
@@ -311,10 +311,8 @@ async def insert_demands_batch(conn, batch_values):
                 yamarket_dbs, yandex_direct, price_ru, wildberries, gis2, seo,
                 programmatic, avito, multiorders, estimated_discount, status, comment
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7,
-                $8, $9, $10, $11, $12, $13,
-                $14, $15, $16, $17, $18, $19,
-                $20, $21, $22, $23, $24, $25,
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25,
                 $26, $27, $28, $29, $30, $31
             )
             ON CONFLICT (id) DO UPDATE SET
@@ -350,66 +348,55 @@ async def insert_demands_batch(conn, batch_values):
                 comment = EXCLUDED.comment
         """
         
-        # Преобразуем словари в кортежи с правильными типами данных
+        # Преобразуем данные
         values = []
         for item in batch_values:
             try:
-                # Преобразование даты, если это строка
-                date_value = item['date']
-                if isinstance(date_value, str):
-                    try:
-                        date_value = datetime.strptime(date_value, "%Y-%m-%d %H:%M:%S.%f")
-                    except ValueError:
-                        date_value = datetime.strptime(date_value, "%Y-%m-%d %H:%M:%S")
-                
                 row = (
-                    item['id'], 
-                    item['number'], 
-                    date_value,
-                    item['counterparty'],
-                    item['store'], 
-                    item['project'], 
-                    item['sales_channel'],
-                    float(item['amount']),
-                    float(item['cost_price']),
-                    float(item['overhead']),
-                    float(item['profit']),
-                    item['promo_period'],
-                    float(item['delivery_amount']),
-                    float(item['admin_data']),
-                    float(item['gdeslon']),
-                    float(item['cityads']),
-                    float(item['ozon']),
-                    float(item['ozon_fbs']),
-                    float(item['yamarket_fbs']),
-                    float(item['yamarket_dbs']),
-                    float(item['yandex_direct']),
-                    float(item['price_ru']),
-                    float(item['wildberries']),
-                    float(item['gis2']),
-                    float(item['seo']),
-                    float(item['programmatic']),
-                    float(item['avito']),
-                    float(item['multiorders']),
-                    float(item['estimated_discount']),
-                    item['status'],
-                    item['comment']
+                    item['id'],
+                    item.get('number', ''),
+                    item.get('date'),
+                    item.get('counterparty', ''),
+                    item.get('store', ''),
+                    item.get('project', 'Без проекта'),
+                    item.get('sales_channel', 'Без канала'),
+                    float(item.get('amount', 0)),
+                    float(item.get('cost_price', 0)),
+                    float(item.get('overhead', 0)),
+                    float(item.get('profit', 0)),
+                    item.get('promo_period', ''),
+                    float(item.get('delivery_amount', 0)),
+                    float(item.get('admin_data', 0)),
+                    float(item.get('gdeslon', 0)),
+                    float(item.get('cityads', 0)),
+                    float(item.get('ozon', 0)),
+                    float(item.get('ozon_fbs', 0)),
+                    float(item.get('yamarket_fbs', 0)),
+                    float(item.get('yamarket_dbs', 0)),
+                    float(item.get('yandex_direct', 0)),
+                    float(item.get('price_ru', 0)),
+                    float(item.get('wildberries', 0)),
+                    float(item.get('gis2', 0)),
+                    float(item.get('seo', 0)),
+                    float(item.get('programmatic', 0)),
+                    float(item.get('avito', 0)),
+                    float(item.get('multiorders', 0)),
+                    float(item.get('estimated_discount', 0)),
+                    item.get('status', ''),
+                    item.get('comment', '')
                 )
                 values.append(row)
             except Exception as e:
-                logger.error(f"Ошибка подготовки строки для вставки: {str(e)}")
+                logger.error(f"Ошибка подготовки строки: {str(e)}")
                 continue
         
-        if not values:
-            logger.warning("Нет валидных данных для вставки")
-            return 0
-        
-        # Вставляем данные
-        await conn.executemany(query, values)
-        return len(values)
+        if values:
+            await conn.executemany(query, values)
+            return len(values)
+        return 0
     
     except Exception as e:
-        logger.error(f"Ошибка при массовой вставке отгрузок: {str(e)}")
+        logger.error(f"Ошибка при вставке отгрузок: {str(e)}")
         return 0
 
 async def insert_positions_batch(cur, batch_values: List[Dict[str, Any]]) -> int:
@@ -2089,31 +2076,37 @@ async def process_single_demand(demand: Dict) -> bool:
     """Обрабатывает одну отгрузку и сохраняет в БД"""
     conn = None
     try:
-        # Подготавливаем данные
-        demand_data = prepare_demand_data(demand)
-        if not demand_data:
-            logger.error("Не удалось подготовить данные отгрузки")
+        demand_id = demand.get('id')
+        if not demand_id:
+            logger.error("Отсутствует ID отгрузки")
             return False
             
+        # Подготавливаем данные
+        demand_data = prepare_demand_data(demand)
         positions_data = prepare_positions_data(demand)
-        if not isinstance(positions_data, list):
-            logger.error("Некорректные данные позиций")
+        
+        if not demand_data:
+            logger.error("Не удалось подготовить данные отгрузки")
             return False
             
         # Сохраняем в БД
         conn = await asyncpg.connect(**DB_CONFIG)
         async with conn.transaction():
-            # Обновляем заголовок отгрузки
+            # 1. Удаляем старые данные
+            await conn.execute("DELETE FROM demands WHERE id = $1", demand_id)
+            await conn.execute("DELETE FROM demand_positions WHERE demand_id = $1", demand_id)
+            
+            # 2. Вставляем новые данные
             await insert_demands_batch(conn, [demand_data])
+            
+            if positions_data:
+                await insert_positions_batch(conn, positions_data)
                 
-            # Обновляем позиции (удаляем старые, добавляем новые)
-            await update_demand_positions(conn, demand_data['id'], positions_data)
-                
-            logger.debug(f"Данные отгрузки {demand_data['id']} сохранены")
+            logger.info(f"Данные отгрузки {demand_id} успешно обновлены")
             return True
             
     except Exception as e:
-        logger.error(f"Ошибка сохранения отгрузки: {str(e)}")
+        logger.error(f"Ошибка сохранения отгрузки {demand_id}: {str(e)}")
         return False
     finally:
         if conn:
