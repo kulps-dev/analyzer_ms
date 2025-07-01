@@ -457,25 +457,36 @@ async def insert_positions_batch(conn, batch_values: List[Dict[str, Any]]) -> in
         values = []
         for pos in batch_values:
             try:
+                # Обработка даты
+                date_value = pos.get('date')
+                if isinstance(date_value, str):
+                    try:
+                        date_value = datetime.strptime(date_value, "%Y-%m-%d %H:%M:%S.%f")
+                    except ValueError:
+                        try:
+                            date_value = datetime.strptime(date_value, "%Y-%m-%d %H:%M:%S")
+                        except ValueError:
+                            date_value = None
+                
                 row = (
-                    pos.get('id', ''),
-                    pos.get('demand_id', ''),
-                    pos.get('demand_number', ''),
-                    pos.get('date'),
-                    pos.get('counterparty', ''),
-                    pos.get('store', ''),
-                    pos.get('project', 'Без проекта'),
-                    pos.get('sales_channel', 'Без канала'),
-                    pos.get('product_name', ''),
+                    str(pos.get('id', ''))[:255],
+                    str(pos.get('demand_id', ''))[:255],
+                    str(pos.get('demand_number', ''))[:50],
+                    date_value,
+                    str(pos.get('counterparty', ''))[:255],
+                    str(pos.get('store', ''))[:255],
+                    str(pos.get('project', 'Без проекта'))[:255],
+                    str(pos.get('sales_channel', 'Без канала'))[:255],
+                    str(pos.get('product_name', ''))[:255],
                     float(pos.get('quantity', 0)),
                     float(pos.get('price', 0)),
                     float(pos.get('amount', 0)),
                     float(pos.get('cost_price', 0)),
-                    pos.get('article', ''),
-                    pos.get('code', ''),
+                    str(pos.get('article', ''))[:100],
+                    str(pos.get('code', ''))[:100],
                     float(pos.get('overhead', 0)),
                     float(pos.get('profit', 0)),
-                    pos.get('promo_period', ''),
+                    str(pos.get('promo_period', ''))[:255],
                     float(pos.get('delivery_amount', 0)),
                     float(pos.get('admin_data', 0)),
                     float(pos.get('gdeslon', 0)),
@@ -664,11 +675,21 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
         # Получаем атрибуты
         attributes = demand.get("attributes", [])
         
+        # Обработка даты
+        moment = demand.get("moment")
+        try:
+            date = datetime.strptime(moment, "%Y-%m-%d %H:%M:%S.%f") if moment else None
+        except ValueError:
+            try:
+                date = datetime.strptime(moment, "%Y-%m-%d %H:%M:%S") if moment else None
+            except (ValueError, TypeError):
+                date = None
+        
         return {
             "id": position_id[:255],
             "demand_id": demand_id[:255],
             "demand_number": str(demand.get("name", ""))[:50],
-            "date": demand.get("moment"),
+            "date": date,
             "counterparty": str(demand.get("agent", {}).get("name", ""))[:255],
             "store": str(demand.get("store", {}).get("name", ""))[:255],
             "project": str(demand.get("project", {}).get("name", "Без проекта"))[:255],
@@ -682,7 +703,7 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
             "code": str(position.get("code", ""))[:100],
             "overhead": overhead_share,
             "profit": amount - cost_price - overhead_share,
-            "promo_period": get_attr_value(attributes, "Акционный период", ""),
+            "promo_period": str(get_attr_value(attributes, "Акционный период", ""))[:255],
             "delivery_amount": float(get_attr_value(attributes, "Сумма доставки", 0)),
             "admin_data": float(get_attr_value(attributes, "Адмидат", 0)),
             "gdeslon": float(get_attr_value(attributes, "ГдеСлон", 0)),
@@ -793,20 +814,20 @@ async def export_excel(date_range: DateRange):
     try:
         logger.info(f"Начало экспорта данных с {date_range.start_date} по {date_range.end_date}")
         
-        # Создаем буфер в памяти
-        output = io.BytesIO()
-        
-        # Создаем новую книгу Excel
-        wb = Workbook()
-        
-        # Удаляем дефолтный лист
-        if wb.worksheets:
-            wb.remove(wb.worksheets[0])
-        
         # Подключаемся к БД
         conn = await get_db_connection()
         
         try:
+            # Создаем буфер в памяти
+            output = BytesIO()
+            
+            # Создаем новую книгу Excel
+            wb = Workbook()
+            
+            # Удаляем дефолтный лист
+            if wb.worksheets:
+                wb.remove(wb.worksheets[0])
+            
             # Создаем листы
             await create_demands_sheet(wb, conn, date_range)
             await create_positions_sheet(wb, conn, date_range)
@@ -817,11 +838,13 @@ async def export_excel(date_range: DateRange):
             output.seek(0)
             
             # Формируем имя файла
-            filename = f"report_{date_range.start_date[:10]}_{date_range.end_date[:10]}.xlsx"
+            start_date_str = date_range.start_date[:10].replace('-', '_')
+            end_date_str = date_range.end_date[:10].replace('-', '_')
+            filename = f"report_{start_date_str}_{end_date_str}.xlsx"
             
             # Возвращаем файл как поток
             return StreamingResponse(
-                output,
+                BytesIO(output.read()),
                 media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 headers={
                     "Content-Disposition": f"attachment; filename={filename}",
@@ -849,8 +872,13 @@ async def create_demands_sheet(wb: Workbook, conn, date_range: DateRange):
     """Создает лист с отгрузками"""
     try:
         # Преобразование строк в datetime
-        start_date = datetime.strptime(date_range.start_date, "%Y-%m-%d %H:%M:%S")
-        end_date = datetime.strptime(date_range.end_date, "%Y-%m-%d %H:%M:%S")
+        try:
+            start_date = datetime.strptime(date_range.start_date, "%Y-%m-%d %H:%M:%S")
+            end_date = datetime.strptime(date_range.end_date, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            # Если не удалось распарсить, пробуем другой формат
+            start_date = datetime.strptime(date_range.start_date[:19], "%Y-%m-%d %H:%M:%S")
+            end_date = datetime.strptime(date_range.end_date[:19], "%Y-%m-%d %H:%M:%S")
 
         # Получаем данные из БД
         rows = await conn.fetch(
@@ -899,45 +927,37 @@ async def create_demands_sheet(wb: Workbook, conn, date_range: DateRange):
         
         # Добавляем данные
         for row in rows:
-            ws.append([
-                row['number'],
-                row['date'],
-                row['counterparty'],
-                row['store'],
-                row['project'],
-                row['sales_channel'],
-                float(row['amount']),
-                float(row['cost_price']),
-                float(row['overhead']),
-                float(row['profit']),
-                row['promo_period'],
-                float(row['delivery_amount']),
-                float(row['admin_data']),
-                float(row['gdeslon']),
-                float(row['cityads']),
-                float(row['ozon']),
-                float(row['ozon_fbs']),
-                float(row['yamarket_fbs']),
-                float(row['yamarket_dbs']),
-                float(row['yandex_direct']),
-                float(row['price_ru']),
-                float(row['wildberries']),
-                float(row['gis2']),
-                float(row['seo']),
-                float(row['programmatic']),
-                float(row['avito']),
-                float(row['multiorders']),
-                float(row['estimated_discount'])
-            ])
+            # Безопасное преобразование значений
+            row_data = []
+            for i, value in enumerate(row):
+                if value is None:
+                    row_data.append("")
+                elif isinstance(value, (int, float, Decimal)):
+                    row_data.append(float(value))
+                elif isinstance(value, datetime):
+                    row_data.append(value)
+                else:
+                    row_data.append(str(value))
+            
+            ws.append(row_data)
         
         # Форматируем числовые столбцы
         numeric_cols = [7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]
         for col in numeric_cols:
-            for row in range(2, ws.max_row + 1):
-                ws.cell(row=row, column=col).number_format = '#,##0.00'
+            for row_num in range(2, ws.max_row + 1):
+                cell = ws.cell(row=row_num, column=col)
+                if isinstance(cell.value, (int, float)):
+                    cell.number_format = '#,##0.00'
+        
+        # Форматируем столбец с датами
+        for row_num in range(2, ws.max_row + 1):
+            cell = ws.cell(row=row_num, column=2)
+            if isinstance(cell.value, datetime):
+                cell.number_format = 'DD.MM.YYYY HH:MM:SS'
         
         # Добавляем автофильтр
-        ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{ws.max_row}"
+        if ws.max_row > 1:
+            ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{ws.max_row}"
         
         logger.info(f"Лист 'Отгрузки' создан с {len(rows)} записями")
         
@@ -949,8 +969,12 @@ async def create_positions_sheet(wb: Workbook, conn, date_range: DateRange):
     """Создает лист с товарами, сгруппированными по отгрузкам с себестоимостью"""
     try:
         # Преобразование строк в datetime
-        start_date = datetime.strptime(date_range.start_date, "%Y-%m-%d %H:%M:%S")
-        end_date = datetime.strptime(date_range.end_date, "%Y-%m-%d %H:%M:%S")
+        try:
+            start_date = datetime.strptime(date_range.start_date, "%Y-%m-%d %H:%M:%S")
+            end_date = datetime.strptime(date_range.end_date, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            start_date = datetime.strptime(date_range.start_date[:19], "%Y-%m-%d %H:%M:%S")
+            end_date = datetime.strptime(date_range.end_date[:19], "%Y-%m-%d %H:%M:%S")
 
         rows = await conn.fetch(
             """
@@ -988,7 +1012,10 @@ async def create_positions_sheet(wb: Workbook, conn, date_range: DateRange):
                 d.avito, 
                 d.multiorders,
                 d.estimated_discount,
-                d.cost_price as total_cost_price
+                d.amount as total_amount,
+                d.cost_price as total_cost_price,
+                d.overhead as total_overhead,
+                d.profit as total_profit
             FROM demand_positions dp
             JOIN demands d ON dp.demand_id = d.id
             WHERE d.date BETWEEN $1 AND $2
@@ -1033,148 +1060,178 @@ async def create_positions_sheet(wb: Workbook, conn, date_range: DateRange):
         current_demand = None
         row_num = 2
         
+        # Группируем данные по отгрузкам
+        demands_data = {}
         for row in rows:
             demand_number = row['demand_number']
+            if demand_number not in demands_data:
+                demands_data[demand_number] = {
+                    'info': {
+                        'number': demand_number,
+                        'date': row['date'],
+                        'counterparty': row['counterparty'],
+                        'store': row['store'],
+                        'project': row['project'],
+                        'sales_channel': row['sales_channel'],
+                        'total_amount': float(row['total_amount']) if row['total_amount'] else 0,
+                        'total_cost_price': float(row['total_cost_price']) if row['total_cost_price'] else 0,
+                        'total_overhead': float(row['total_overhead']) if row['total_overhead'] else 0,
+                        'total_profit': float(row['total_profit']) if row['total_profit'] else 0,
+                        'promo_period': row['promo_period'] or '',
+                        'delivery_amount': float(row['delivery_amount']) if row['delivery_amount'] else 0,
+                        'admin_data': float(row['admin_data']) if row['admin_data'] else 0,
+                        'gdeslon': float(row['gdeslon']) if row['gdeslon'] else 0,
+                        'cityads': float(row['cityads']) if row['cityads'] else 0,
+                        'ozon': float(row['ozon']) if row['ozon'] else 0,
+                        'ozon_fbs': float(row['ozon_fbs']) if row['ozon_fbs'] else 0,
+                        'yamarket_fbs': float(row['yamarket_fbs']) if row['yamarket_fbs'] else 0,
+                        'yamarket_dbs': float(row['yamarket_dbs']) if row['yamarket_dbs'] else 0,
+                        'yandex_direct': float(row['yandex_direct']) if row['yandex_direct'] else 0,
+                        'price_ru': float(row['price_ru']) if row['price_ru'] else 0,
+                        'wildberries': float(row['wildberries']) if row['wildberries'] else 0,
+                        'gis2': float(row['gis2']) if row['gis2'] else 0,
+                        'seo': float(row['seo']) if row['seo'] else 0,
+                        'programmatic': float(row['programmatic']) if row['programmatic'] else 0,
+                        'avito': float(row['avito']) if row['avito'] else 0,
+                        'multiorders': float(row['multiorders']) if row['multiorders'] else 0,
+                        'estimated_discount': float(row['estimated_discount']) if row['estimated_discount'] else 0
+                    },
+                    'positions': []
+                }
             
-            if demand_number != current_demand:
-                current_demand = demand_number
-                
-                # Строка с итогами по отгрузке
-                ws.append([
-                    demand_number,
-                    row['date'],
-                    row['counterparty'],
-                    row['store'],
-                    row['project'],
-                    row['sales_channel'],
-                    "Итого по отгрузке:",
-                    "",
-                    "",
-                    float(row['amount']),
-                    float(row['total_cost_price']),
-                    "",
-                    "",
-                    float(row['overhead']),
-                    float(row['profit']),
-                    row['promo_period'],
-                    float(row['delivery_amount']),
-                    float(row['admin_data']),
-                    float(row['gdeslon']),
-                    float(row['cityads']),
-                    float(row['ozon']),
-                    float(row['ozon_fbs']),
-                    float(row['yamarket_fbs']),
-                    float(row['yamarket_dbs']),
-                    float(row['yandex_direct']),
-                    float(row['price_ru']),
-                    float(row['wildberries']),
-                    float(row['gis2']),
-                    float(row['seo']),
-                    float(row['programmatic']),
-                    float(row['avito']),
-                    float(row['multiorders']),
-                    float(row['estimated_discount'])
-                ])
-                
-                # Форматирование строки с итогами
-                for col in range(1, len(headers) + 1):
-                    cell = ws.cell(row=row_num, column=col)
-                    cell.font = Font(name='Calibri', bold=True)
-                    cell.fill = PatternFill(start_color='D9E1F2', end_color='D9E1F2', fill_type='solid')
-                    cell.border = thin_border
-                    
-                    if col in [10, 11, 14, 15, 17] + list(range(18, 34)):
-                        try:
-                            cell.number_format = '#,##0.00'
-                            cell.alignment = Alignment(horizontal='right', vertical='center')
-                        except:
-                            pass
-                    
-                    if col == 7:
-                        cell.alignment = Alignment(horizontal='right', vertical='center')
-                
-                row_num += 1
+            # Добавляем позицию
+            demands_data[demand_number]['positions'].append({
+                'product_name': row['product_name'] or '',
+                'quantity': float(row['quantity']) if row['quantity'] else 0,
+                'price': float(row['price']) if row['price'] else 0,
+                'amount': float(row['amount']) if row['amount'] else 0,
+                'cost_price': float(row['cost_price']) if row['cost_price'] else 0,
+                'article': row['article'] or '',
+                'code': row['code'] or ''
+            })
+        
+        # Добавляем данные в лист
+        for demand_number, demand_data in demands_data.items():
+            info = demand_data['info']
             
-            # Строка с товаром
-            ws.append([
+            # Строка с итогами по отгрузке
+            summary_row = [
+                info['number'],
+                info['date'],
+                info['counterparty'],
+                info['store'],
+                info['project'],
+                info['sales_channel'],
+                "Итого по отгрузке:",
                 "",
                 "",
+                info['total_amount'],
+                info['total_cost_price'],
                 "",
                 "",
-                "",
-                "",
-                row['product_name'],
-                float(row['quantity']),
-                float(row['price']),
-                float(row['amount']),
-                float(row['cost_price']),
-                row['article'],
-                row['code'],
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                ""
-            ])
+                info['total_overhead'],
+                info['total_profit'],
+                info['promo_period'],
+                info['delivery_amount'],
+                info['admin_data'],
+                info['gdeslon'],
+                info['cityads'],
+                info['ozon'],
+                info['ozon_fbs'],
+                info['yamarket_fbs'],
+                info['yamarket_dbs'],
+                info['yandex_direct'],
+                info['price_ru'],
+                info['wildberries'],
+                info['gis2'],
+                info['seo'],
+                info['programmatic'],
+                info['avito'],
+                info['multiorders'],
+                info['estimated_discount']
+            ]
             
-            # Форматирование строки с товаром
+            ws.append(summary_row)
+            
+            # Форматирование строки с итогами
             for col in range(1, len(headers) + 1):
                 cell = ws.cell(row=row_num, column=col)
-                cell.font = Font(name='Calibri', size=10)
+                cell.font = Font(name='Calibri', bold=True)
+                cell.fill = PatternFill(start_color='D9E1F2', end_color='D9E1F2', fill_type='solid')
                 cell.border = thin_border
                 
-                if col in [8, 9, 10, 11]:
-                    try:
+                if col in [10, 11, 14, 15, 17] + list(range(18, 34)):
+                    if isinstance(cell.value, (int, float)):
                         cell.number_format = '#,##0.00'
                         cell.alignment = Alignment(horizontal='right', vertical='center')
-                    except:
-                        pass
                 
-                elif col == 2:
+                if col == 7:
+                    cell.alignment = Alignment(horizontal='right', vertical='center')
+                
+                if col == 2 and isinstance(cell.value, datetime):
                     cell.number_format = 'DD.MM.YYYY HH:MM:SS'
             
             row_num += 1
+            
+            # Строки с товарами
+            for position in demand_data['positions']:
+                product_row = [
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    position['product_name'],
+                    position['quantity'],
+                    position['price'],
+                    position['amount'],
+                    position['cost_price'],
+                    position['article'],
+                    position['code'],
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    ""
+                ]
+                
+                ws.append(product_row)
+                
+                # Форматирование строки с товаром
+                for col in range(1, len(headers) + 1):
+                    cell = ws.cell(row=row_num, column=col)
+                    cell.font = Font(name='Calibri', size=10)
+                    cell.border = thin_border
+                    
+                    if col in [8, 9, 10, 11] and isinstance(cell.value, (int, float)):
+                        cell.number_format = '#,##0.00'
+                        cell.alignment = Alignment(horizontal='right', vertical='center')
+                
+                row_num += 1
         
         # Добавляем автофильтр и замораживаем заголовки
-        ws.auto_filter.ref = ws.dimensions
+        if ws.max_row > 1:
+            ws.auto_filter.ref = ws.dimensions
         ws.freeze_panes = 'A2'
         
-        # Добавляем итоговую строку
-        total_row = row_num + 1
-        ws.append([""] * len(headers))
+        logger.info(f"Лист 'Отчет по товарам' создан с {len(rows)} записями")
         
-        # Формируем итоговую строку
-        for col in range(1, len(headers) + 1):
-            cell = ws.cell(row=total_row, column=col)
-            cell.font = Font(bold=True)
-            cell.border = thin_border
-            
-            if col in [10, 11, 14, 15, 17] + list(range(18, 34)):
-                column_letter = get_column_letter(col)
-                formula = f"SUM({column_letter}2:{column_letter}{row_num})"
-                cell.value = f"=ROUND({formula}, 2)"
-                cell.number_format = '#,##0.00'
-                cell.alignment = Alignment(horizontal='right', vertical='center')
-                cell.fill = PatternFill(start_color='D9E1F2', end_color='D9E1F2', fill_type='solid')
-            elif col == 1:
-                cell.value = "Общий итог:"
-                cell.alignment = Alignment(horizontal='right', vertical='center')
-    
     except Exception as e:
         logger.error(f"Ошибка при создании листа с товарами: {str(e)}")
         raise
