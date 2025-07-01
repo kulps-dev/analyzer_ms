@@ -404,6 +404,9 @@ async def insert_demands_batch(conn, batch_values):
 
 async def insert_positions_batch(conn, batch_values: List[Dict[str, Any]]) -> int:
     """Асинхронная массовая вставка позиций с правильным количеством параметров"""
+    if not batch_values:
+        return 0
+        
     try:
         query = """
             INSERT INTO demand_positions (
@@ -453,8 +456,9 @@ async def insert_positions_batch(conn, batch_values: List[Dict[str, Any]]) -> in
                 estimated_discount = EXCLUDED.estimated_discount
         """
         
-        # Преобразуем данные в список кортежей
-        values = []
+        # Подготавливаем данные для вставки
+        rows_to_insert = []
+        
         for pos in batch_values:
             try:
                 # Обработка даты
@@ -465,55 +469,69 @@ async def insert_positions_batch(conn, batch_values: List[Dict[str, Any]]) -> in
                     except ValueError:
                         try:
                             date_value = datetime.strptime(date_value, "%Y-%m-%d %H:%M:%S")
-                        except ValueError:
+                        except (ValueError, TypeError):
                             date_value = None
+                elif not isinstance(date_value, datetime):
+                    date_value = None
                 
-                row = (
-                    str(pos.get('id', ''))[:255],
-                    str(pos.get('demand_id', ''))[:255],
-                    str(pos.get('demand_number', ''))[:50],
-                    date_value,
-                    str(pos.get('counterparty', ''))[:255],
-                    str(pos.get('store', ''))[:255],
-                    str(pos.get('project', 'Без проекта'))[:255],
-                    str(pos.get('sales_channel', 'Без канала'))[:255],
-                    str(pos.get('product_name', ''))[:255],
-                    float(pos.get('quantity', 0)),
-                    float(pos.get('price', 0)),
-                    float(pos.get('amount', 0)),
-                    float(pos.get('cost_price', 0)),
-                    str(pos.get('article', ''))[:100],
-                    str(pos.get('code', ''))[:100],
-                    float(pos.get('overhead', 0)),
-                    float(pos.get('profit', 0)),
-                    str(pos.get('promo_period', ''))[:255],
-                    float(pos.get('delivery_amount', 0)),
-                    float(pos.get('admin_data', 0)),
-                    float(pos.get('gdeslon', 0)),
-                    float(pos.get('cityads', 0)),
-                    float(pos.get('ozon', 0)),
-                    float(pos.get('ozon_fbs', 0)),
-                    float(pos.get('yamarket_fbs', 0)),
-                    float(pos.get('yamarket_dbs', 0)),
-                    float(pos.get('yandex_direct', 0)),
-                    float(pos.get('price_ru', 0)),
-                    float(pos.get('wildberries', 0)),
-                    float(pos.get('gis2', 0)),
-                    float(pos.get('seo', 0)),
-                    float(pos.get('programmatic', 0)),
-                    float(pos.get('avito', 0)),
-                    float(pos.get('multiorders', 0)),
-                    float(pos.get('estimated_discount', 0))
+                # Создаем кортеж с точно 34 значениями
+                row_data = (
+                    str(pos.get('id', ''))[:255],                           # 1
+                    str(pos.get('demand_id', ''))[:255],                    # 2
+                    str(pos.get('demand_number', ''))[:50],                 # 3
+                    date_value,                                             # 4
+                    str(pos.get('counterparty', ''))[:255],                 # 5
+                    str(pos.get('store', ''))[:255],                        # 6
+                    str(pos.get('project', 'Без проекта'))[:255],          # 7
+                    str(pos.get('sales_channel', 'Без канала'))[:255],     # 8
+                    str(pos.get('product_name', ''))[:255],                 # 9
+                    float(pos.get('quantity', 0)),                         # 10
+                    float(pos.get('price', 0)),                            # 11
+                    float(pos.get('amount', 0)),                           # 12
+                    float(pos.get('cost_price', 0)),                       # 13
+                    str(pos.get('article', ''))[:100],                     # 14
+                    str(pos.get('code', ''))[:100],                        # 15
+                    float(pos.get('overhead', 0)),                         # 16
+                    float(pos.get('profit', 0)),                           # 17
+                    str(pos.get('promo_period', ''))[:255],                # 18
+                    float(pos.get('delivery_amount', 0)),                  # 19
+                    float(pos.get('admin_data', 0)),                       # 20
+                    float(pos.get('gdeslon', 0)),                          # 21
+                    float(pos.get('cityads', 0)),                          # 22
+                    float(pos.get('ozon', 0)),                             # 23
+                    float(pos.get('ozon_fbs', 0)),                         # 24
+                    float(pos.get('yamarket_fbs', 0)),                     # 25
+                    float(pos.get('yamarket_dbs', 0)),                     # 26
+                    float(pos.get('yandex_direct', 0)),                    # 27
+                    float(pos.get('price_ru', 0)),                         # 28
+                    float(pos.get('wildberries', 0)),                      # 29
+                    float(pos.get('gis2', 0)),                             # 30
+                    float(pos.get('seo', 0)),                              # 31
+                    float(pos.get('programmatic', 0)),                     # 32
+                    float(pos.get('avito', 0)),                            # 33
+                    float(pos.get('multiorders', 0)),                      # 34
+                    float(pos.get('estimated_discount', 0))                # 35 - НЕТ! Должно быть 34!
                 )
-                values.append(row)
+                
+                # Проверяем, что у нас ровно 34 параметра
+                if len(row_data) != 34:
+                    logger.error(f"Неверное количество параметров: {len(row_data)}, ожидается 34")
+                    continue
+                    
+                rows_to_insert.append(row_data)
+                
             except Exception as e:
                 logger.error(f"Ошибка подготовки позиции {pos.get('id', 'unknown')}: {str(e)}")
                 continue
         
-        if values:
-            await conn.executemany(query, values)
-            return len(values)
-        return 0
+        if rows_to_insert:
+            # Вставляем данные
+            await conn.executemany(query, rows_to_insert)
+            logger.info(f"Успешно вставлено {len(rows_to_insert)} позиций")
+            return len(rows_to_insert)
+        else:
+            logger.warning("Нет данных для вставки")
+            return 0
     
     except Exception as e:
         logger.error(f"Ошибка при вставке позиций: {str(e)}")
@@ -528,6 +546,8 @@ async def process_single_demand(demand: Dict) -> bool:
             logger.error("Отсутствует ID отгрузки")
             return False
             
+        logger.info(f"Обработка отгрузки {demand_id}")
+        
         # Подготавливаем данные
         demand_data = prepare_demand_data(demand)
         positions_data = prepare_positions_data(demand)
@@ -544,11 +564,21 @@ async def process_single_demand(demand: Dict) -> bool:
             await conn.execute("DELETE FROM demand_positions WHERE demand_id = $1", demand_id)
             await conn.execute("DELETE FROM demands WHERE id = $1", demand_id)
             
-            # 2. Вставляем новые данные
-            await insert_demands_batch(conn, [demand_data])
+            # 2. Вставляем новые данные отгрузки
+            inserted_demands = await insert_demands_batch(conn, [demand_data])
+            logger.info(f"Вставлено отгрузок: {inserted_demands}")
             
+            # 3. Вставляем позиции, если они есть
             if positions_data:
-                await insert_positions_batch(conn, positions_data)
+                # Фильтруем None значения
+                valid_positions = [pos for pos in positions_data if pos is not None]
+                if valid_positions:
+                    inserted_positions = await insert_positions_batch(conn, valid_positions)
+                    logger.info(f"Вставлено позиций: {inserted_positions}")
+                else:
+                    logger.warning("Нет валидных позиций для вставки")
+            else:
+                logger.info("Нет позиций для вставки")
                 
             logger.info(f"Данные отгрузки {demand_id} успешно обновлены")
             return True
@@ -811,62 +841,62 @@ async def get_task_status(task_id: str):
 @app.post("/api/export/excel")
 async def export_excel(date_range: DateRange):
     """Экспорт данных в Excel файл с обработкой ошибок"""
+    conn = None
     try:
         logger.info(f"Начало экспорта данных с {date_range.start_date} по {date_range.end_date}")
         
         # Подключаемся к БД
         conn = await get_db_connection()
         
-        try:
-            # Создаем буфер в памяти
-            output = BytesIO()
-            
-            # Создаем новую книгу Excel
-            wb = Workbook()
-            
-            # Удаляем дефолтный лист
-            if wb.worksheets:
-                wb.remove(wb.worksheets[0])
-            
-            # Создаем листы
-            await create_demands_sheet(wb, conn, date_range)
-            await create_positions_sheet(wb, conn, date_range)
-            await create_products_summary_sheet(wb, conn, date_range)
-            
-            # Сохраняем в буфер
-            wb.save(output)
-            output.seek(0)
-            
-            # Формируем имя файла
-            start_date_str = date_range.start_date[:10].replace('-', '_')
-            end_date_str = date_range.end_date[:10].replace('-', '_')
-            filename = f"report_{start_date_str}_{end_date_str}.xlsx"
-            
-            # Возвращаем файл как поток
-            return StreamingResponse(
-                BytesIO(output.read()),
-                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                headers={
-                    "Content-Disposition": f"attachment; filename={filename}",
-                    "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                }
-            )
-            
-        except Exception as e:
-            logger.error(f"Ошибка при формировании Excel: {str(e)}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Ошибка формирования Excel: {str(e)}"
-            )
-        finally:
-            await conn.close()
-            
+        # Создаем новую книгу Excel
+        wb = Workbook()
+        
+        # Удаляем дефолтный лист
+        default_sheet = wb.active
+        wb.remove(default_sheet)
+        
+        # Создаем листы
+        await create_demands_sheet(wb, conn, date_range)
+        await create_positions_sheet(wb, conn, date_range)
+        await create_products_summary_sheet(wb, conn, date_range)
+        
+        # Создаем буфер в памяти
+        output = BytesIO()
+        
+        # Сохраняем в буфер
+        wb.save(output)
+        output.seek(0)
+        
+        # Читаем данные из буфера
+        file_data = output.getvalue()
+        
+        # Формируем имя файла (убираем недопустимые символы)
+        start_date_str = date_range.start_date[:10].replace('-', '_')
+        end_date_str = date_range.end_date[:10].replace('-', '_')
+        filename = f"report_{start_date_str}_{end_date_str}.xlsx"
+        
+        # Создаем новый BytesIO с данными файла
+        file_stream = BytesIO(file_data)
+        
+        # Возвращаем файл как поток
+        return StreamingResponse(
+            file_stream,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f"attachment; filename=\"{filename}\"",
+                "Content-Length": str(len(file_data))
+            }
+        )
+        
     except Exception as e:
         logger.error(f"Критическая ошибка при экспорте в Excel: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=str(e)
+            detail=f"Ошибка экспорта: {str(e)}"
         )
+    finally:
+        if conn:
+            await conn.close()
 
 async def create_demands_sheet(wb: Workbook, conn, date_range: DateRange):
     """Создает лист с отгрузками"""
@@ -1240,8 +1270,12 @@ async def create_products_summary_sheet(wb: Workbook, conn, date_range: DateRang
     """Создает лист со сводным отчетом по товарам"""
     try:
         # Преобразование строк в datetime
-        start_date = datetime.strptime(date_range.start_date, "%Y-%m-%d %H:%M:%S")
-        end_date = datetime.strptime(date_range.end_date, "%Y-%m-%d %H:%M:%S")
+        try:
+            start_date = datetime.strptime(date_range.start_date, "%Y-%m-%d %H:%M:%S")
+            end_date = datetime.strptime(date_range.end_date, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            start_date = datetime.strptime(date_range.start_date[:19], "%Y-%m-%d %H:%M:%S")
+            end_date = datetime.strptime(date_range.end_date[:19], "%Y-%m-%d %H:%M:%S")
 
         rows = await conn.fetch(
             """
@@ -1278,21 +1312,63 @@ async def create_products_summary_sheet(wb: Workbook, conn, date_range: DateRang
         headers = [
             "Товар", "Артикул", "Код", "Общее количество", "Склад", "Проект", "Канал продаж",
             "Средняя цена", "Сумма оплачиваемой доставки", "Общая сумма", "Себестоимость товара",
-            "Сумма накладных расходов", "Общая прибыль", "Маржинальность"
+            "Сумма накладных расходов", "Общая прибыль", "Маржинальность (%)"
         ]
         
-        apply_sheet_styling(
-            ws, 
-            headers, 
-            rows, 
-            numeric_columns=[3, 7, 8, 9, 10, 11, 12, 13],  # Индексы числовых столбцов (0-based)
-            profit_column=12,  # Столбец с прибылью
-            sheet_type="products_summary"
-        )
-    
+        # Добавляем заголовки
+        ws.append(headers)
+        
+        # Применяем стили к заголовкам
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'),
+                            top=Side(style='thin'), bottom=Side(style='thin'))
+        
+        for col in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.border = thin_border
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            ws.column_dimensions[get_column_letter(col)].width = max(15, len(headers[col-1]) * 1.1)
+        
+        # Добавляем данные
+        for row in rows:
+            # Безопасное преобразование значений
+            row_data = []
+            for i, value in enumerate(row):
+                if value is None:
+                    row_data.append("")
+                elif isinstance(value, (int, float, Decimal)):
+                    row_data.append(float(value))
+                else:
+                    row_data.append(str(value))
+            
+            ws.append(row_data)
+        
+        # Форматируем числовые столбцы
+        numeric_cols = [4, 8, 9, 10, 11, 12, 13, 14]  # Индексы числовых столбцов
+        for col in numeric_cols:
+            for row_num in range(2, ws.max_row + 1):
+                cell = ws.cell(row=row_num, column=col)
+                if isinstance(cell.value, (int, float)):
+                    if col == 14:  # Маржинальность в процентах
+                        cell.number_format = '0.00%'
+                        cell.value = cell.value / 100  # Конвертируем в десятичную дробь для процентов
+                    else:
+                        cell.number_format = '#,##0.00'
+        
+        # Добавляем автофильтр
+        if ws.max_row > 1:
+            ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{ws.max_row}"
+        
+        logger.info(f"Лист 'Сводный отчет по товарам' создан с {len(rows)} записями")
+        
     except Exception as e:
         logger.error(f"Ошибка при создании сводного отчета по товарам: {str(e)}")
-        raise
+        # Создаем пустой лист в случае ошибки
+        ws = wb.create_sheet("Сводный отчет по товарам")
+        ws.append(["Ошибка при создании отчета", str(e)])
 
 def apply_sheet_styling(ws, headers, rows, numeric_columns, profit_column, sheet_type):
     """Применяет стили к листу Excel с учетом типа листа"""
@@ -2257,13 +2333,20 @@ def prepare_positions_data(demand: Dict) -> List[Dict]:
             logger.warning(f"Некорректный формат позиций: {type(positions)}")
             return []
             
-        logger.info(f"Подготовка {len(positions)} позиций")
+        logger.info(f"Подготовка {len(positions)} позиций для отгрузки {demand.get('id', 'unknown')}")
         
-        return [
-            prepare_position_data(demand, pos) 
-            for pos in positions 
-            if isinstance(pos, dict)
-        ]
+        prepared_positions = []
+        for i, pos in enumerate(positions):
+            if isinstance(pos, dict):
+                prepared_pos = prepare_position_data(demand, pos)
+                if prepared_pos:
+                    prepared_positions.append(prepared_pos)
+                    logger.debug(f"Позиция {i+1} подготовлена: {prepared_pos.get('id', 'unknown')}")
+                else:
+                    logger.warning(f"Позиция {i+1} не была подготовлена")
+        
+        logger.info(f"Успешно подготовлено {len(prepared_positions)} из {len(positions)} позиций")
+        return prepared_positions
         
     except Exception as e:
         logger.error(f"Ошибка подготовки позиций: {str(e)}")
