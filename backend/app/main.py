@@ -2064,7 +2064,7 @@ async def update_demand_positions(conn, demand_id: str, positions: List[Dict]):
     # Удаляем старые позиции
     await conn.execute("DELETE FROM demand_positions WHERE demand_id = $1", demand_id)
     
-    # Подготовка запроса
+    # Подготовка запроса - убедитесь, что количество столбцов совпадает с количеством значений
     query = """
         INSERT INTO demand_positions (
             id, demand_id, demand_number, date, counterparty, store, 
@@ -2080,41 +2080,6 @@ async def update_demand_positions(conn, demand_id: str, positions: List[Dict]):
             $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
             $31, $32, $33, $34
         )
-        ON CONFLICT (id) DO UPDATE SET
-            demand_id = EXCLUDED.demand_id,
-            demand_number = EXCLUDED.demand_number,
-            date = EXCLUDED.date,
-            counterparty = EXCLUDED.counterparty,
-            store = EXCLUDED.store,
-            project = EXCLUDED.project,
-            sales_channel = EXCLUDED.sales_channel,
-            product_name = EXCLUDED.product_name,
-            quantity = EXCLUDED.quantity,
-            price = EXCLUDED.price,
-            amount = EXCLUDED.amount,
-            cost_price = EXCLUDED.cost_price,
-            article = EXCLUDED.article,
-            code = EXCLUDED.code,
-            overhead = EXCLUDED.overhead,
-            profit = EXCLUDED.profit,
-            promo_period = EXCLUDED.promo_period,
-            delivery_amount = EXCLUDED.delivery_amount,
-            admin_data = EXCLUDED.admin_data,
-            gdeslon = EXCLUDED.gdeslon,
-            cityads = EXCLUDED.cityads,
-            ozon = EXCLUDED.ozon,
-            ozon_fbs = EXCLUDED.ozon_fbs,
-            yamarket_fbs = EXCLUDED.yamarket_fbs,
-            yamarket_dbs = EXCLUDED.yamarket_dbs,
-            yandex_direct = EXCLUDED.yandex_direct,
-            price_ru = EXCLUDED.price_ru,
-            wildberries = EXCLUDED.wildberries,
-            gis2 = EXCLUDED.gis2,
-            seo = EXCLUDED.seo,
-            programmatic = EXCLUDED.programmatic,
-            avito = EXCLUDED.avito,
-            multiorders = EXCLUDED.multiorders,
-            estimated_discount = EXCLUDED.estimated_discount
     """
     
     # Подготовка данных с проверкой и преобразованием типов
@@ -2129,25 +2094,43 @@ async def update_demand_positions(conn, demand_id: str, positions: List[Dict]):
                 except ValueError:
                     pos_date = datetime.strptime(pos_date, "%Y-%m-%d %H:%M:%S")
             
+            # Проверяем, что все обязательные поля присутствуют
+            required_fields = [
+                'id', 'demand_id', 'demand_number', 'date', 'counterparty',
+                'store', 'project', 'sales_channel', 'product_name', 'quantity',
+                'price', 'amount', 'cost_price', 'article', 'code', 'overhead',
+                'profit', 'promo_period', 'delivery_amount', 'admin_data',
+                'gdeslon', 'cityads', 'ozon', 'ozon_fbs', 'yamarket_fbs',
+                'yamarket_dbs', 'yandex_direct', 'price_ru', 'wildberries',
+                'gis2', 'seo', 'programmatic', 'avito', 'multiorders',
+                'estimated_discount'
+            ]
+            
+            # Проверяем наличие всех полей
+            for field in required_fields:
+                if field not in pos:
+                    raise ValueError(f"Отсутствует обязательное поле: {field}")
+            
+            # Формируем кортеж значений в ТОЧНОМ порядке, соответствующем запросу
             row = (
-                pos.get('id'),
-                pos.get('demand_id'),
-                pos.get('demand_number'),
+                pos['id'],
+                pos['demand_id'],
+                pos['demand_number'],
                 pos_date,
-                pos.get('counterparty'),
-                pos.get('store'),
-                pos.get('project'),
-                pos.get('sales_channel'),
-                pos.get('product_name'),
-                float(pos.get('quantity', 0)),
-                float(pos.get('price', 0)),
-                float(pos.get('amount', 0)),
-                float(pos.get('cost_price', 0)),
-                pos.get('article'),
-                pos.get('code'),
+                pos['counterparty'],
+                pos['store'],
+                pos['project'],
+                pos['sales_channel'],
+                pos['product_name'],
+                float(pos['quantity']),
+                float(pos['price']),
+                float(pos['amount']),
+                float(pos['cost_price']),
+                pos['article'],
+                pos['code'],
                 float(pos.get('overhead', 0)),
                 float(pos.get('profit', 0)),
-                pos.get('promo_period'),
+                pos['promo_period'],
                 float(pos.get('delivery_amount', 0)),
                 float(pos.get('admin_data', 0)),
                 float(pos.get('gdeslon', 0)),
@@ -2166,9 +2149,14 @@ async def update_demand_positions(conn, demand_id: str, positions: List[Dict]):
                 float(pos.get('multiorders', 0)),
                 float(pos.get('estimated_discount', 0))
             )
+            
+            # Проверяем, что количество элементов совпадает с количеством параметров в запросе
+            if len(row) != 34:
+                raise ValueError(f"Несоответствие количества значений (ожидается 34, получено {len(row)})")
+            
             values.append(row)
         except Exception as e:
-            logger.error(f"Ошибка подготовки позиции {pos.get('id')}: {str(e)}")
+            logger.error(f"Ошибка подготовки позиции {pos.get('id', 'unknown')}: {str(e)}")
             continue
     
     if not values:
