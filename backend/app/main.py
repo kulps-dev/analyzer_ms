@@ -474,7 +474,7 @@ async def insert_positions_batch(conn, batch_values: List[Dict[str, Any]]) -> in
                 elif not isinstance(date_value, datetime):
                     date_value = None
                 
-                # Создаем кортеж с точно 34 значениями
+                # Создаем кортеж с точно 34 значениями (УБИРАЕМ estimated_discount!)
                 row_data = (
                     str(pos.get('id', ''))[:255],                           # 1
                     str(pos.get('demand_id', ''))[:255],                    # 2
@@ -509,8 +509,7 @@ async def insert_positions_batch(conn, batch_values: List[Dict[str, Any]]) -> in
                     float(pos.get('seo', 0)),                              # 31
                     float(pos.get('programmatic', 0)),                     # 32
                     float(pos.get('avito', 0)),                            # 33
-                    float(pos.get('multiorders', 0)),                      # 34
-                    float(pos.get('estimated_discount', 0))                # 35 - НЕТ! Должно быть 34!
+                    float(pos.get('multiorders', 0))                       # 34 (БЕЗ estimated_discount!)
                 )
                 
                 # Проверяем, что у нас ровно 34 параметра
@@ -852,35 +851,55 @@ async def export_excel(date_range: DateRange):
         wb = Workbook()
         
         # Удаляем дефолтный лист
-        default_sheet = wb.active
-        wb.remove(default_sheet)
+        if wb.worksheets:
+            wb.remove(wb.worksheets[0])
         
-        # Создаем листы
-        await create_demands_sheet(wb, conn, date_range)
-        await create_positions_sheet(wb, conn, date_range)
-        await create_products_summary_sheet(wb, conn, date_range)
+        # Создаем листы по очереди с обработкой ошибок
+        try:
+            await create_demands_sheet_safe(wb, conn, date_range)
+        except Exception as e:
+            logger.error(f"Ошибка создания листа отгрузок: {str(e)}")
+            # Создаем пустой лист с ошибкой
+            ws = wb.create_sheet("Отгрузки")
+            ws.append(["Ошибка при создании листа", str(e)])
         
-        # Создаем буфер в памяти
-        output = BytesIO()
+        try:
+            await create_positions_sheet_safe(wb, conn, date_range)
+        except Exception as e:
+            logger.error(f"Ошибка создания листа товаров: {str(e)}")
+            ws = wb.create_sheet("Отчет по товарам")
+            ws.append(["Ошибка при создании листа", str(e)])
         
-        # Сохраняем в буфер
-        wb.save(output)
-        output.seek(0)
+        try:
+            await create_products_summary_sheet_safe(wb, conn, date_range)
+        except Exception as e:
+            logger.error(f"Ошибка создания сводного листа: {str(e)}")
+            ws = wb.create_sheet("Сводный отчет по товарам")
+            ws.append(["Ошибка при создании листа", str(e)])
         
-        # Читаем данные из буфера
-        file_data = output.getvalue()
+        # Создаем временный файл
+        import tempfile
+        import os
         
-        # Формируем имя файла (убираем недопустимые символы)
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
+            wb.save(tmp_file.name)
+            tmp_file_path = tmp_file.name
+        
+        # Читаем файл
+        with open(tmp_file_path, 'rb') as f:
+            file_data = f.read()
+        
+        # Удаляем временный файл
+        os.unlink(tmp_file_path)
+        
+        # Формируем имя файла
         start_date_str = date_range.start_date[:10].replace('-', '_')
         end_date_str = date_range.end_date[:10].replace('-', '_')
         filename = f"report_{start_date_str}_{end_date_str}.xlsx"
         
-        # Создаем новый BytesIO с данными файла
-        file_stream = BytesIO(file_data)
-        
-        # Возвращаем файл как поток
-        return StreamingResponse(
-            file_stream,
+        # Возвращаем файл
+        return Response(
+            content=file_data,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={
                 "Content-Disposition": f"attachment; filename=\"{filename}\"",
