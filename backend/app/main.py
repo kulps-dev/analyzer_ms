@@ -45,11 +45,11 @@ app.add_middleware(
 DB_CONFIG = {
     "host": "87.228.99.200",
     "port": 5432,
-    "database": "MS",  # Изменили с dbname на database
+    "database": "MS",  # Используем 'database' вместо 'dbname'
     "user": "louella",
     "password": "XBcMJoEO1ljb",
-    "ssl": "verify-ca",
-    "sslrootcert": "/root/.postgresql/root.crt"
+    "ssl": "require",  # Изменяем на 'require' вместо 'verify-ca'
+    # Убираем sslrootcert, так как asyncpg использует другой подход
 }
 
 # Инициализация API МойСклад
@@ -87,14 +87,12 @@ class WebhookData(BaseModel):
 tasks_status = {}
 
 async def get_db_connection():
-    return await asyncpg.connect(
-        host="87.228.99.200",
-        port=5432,
-        database="MS",
-        user="louella",
-        password="XBcMJoEO1ljb",
-        ssl="verify-ca"
-    )
+    try:
+        conn = await asyncpg.connect(**DB_CONFIG)
+        return conn
+    except Exception as e:
+        logger.error(f"Ошибка подключения к БД: {str(e)}")
+        raise
 
 async def init_db():
     """Асинхронная инициализация базы данных"""
