@@ -45,10 +45,10 @@ app.add_middleware(
 DB_CONFIG = {
     "host": "87.228.99.200",
     "port": 5432,
-    "dbname": "MS",
+    "database": "MS",  # Изменили с dbname на database
     "user": "louella",
     "password": "XBcMJoEO1ljb",
-    "sslmode": "verify-ca",
+    "ssl": "verify-ca",
     "sslrootcert": "/root/.postgresql/root.crt"
 }
 
@@ -86,8 +86,8 @@ class WebhookData(BaseModel):
 # Глобальный словарь для хранения статусов задач
 tasks_status = {}
 
-def get_db_connection():
-    return psycopg2.connect(**DB_CONFIG)
+async def get_db_connection():
+    return await asyncpg.connect(**DB_CONFIG)
 
 def init_db():
     """Инициализация базы данных - создание таблиц если они не существуют"""
