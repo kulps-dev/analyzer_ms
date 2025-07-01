@@ -82,13 +82,16 @@ class WebhookData(BaseModel):
         extra = "allow"  # Разрешает дополнительные поля
 
 class WebhookEvent(BaseModel):
-    meta: dict
+    meta: Dict[str, Any]
     action: str
     accountId: str
 
 class WebhookData(BaseModel):
-    auditContext: dict
     events: List[WebhookEvent]
+    auditContext: Optional[Dict[str, Any]] = None
+    
+    class Config:
+        extra = "allow"  # Разрешает дополнительные поля
 
 # Глобальный словарь для хранения статусов задач
 tasks_status = {}
@@ -399,8 +402,8 @@ async def insert_demands_batch(conn, batch_values):
         logger.error(f"Ошибка при вставке отгрузок: {str(e)}")
         return 0
 
-async def insert_positions_batch(cur, batch_values: List[Dict[str, Any]]) -> int:
-    """Массовая вставка пакета данных позиций"""
+async def insert_positions_batch(conn, batch_values: List[Dict[str, Any]]) -> int:
+    """Асинхронная массовая вставка позиций"""
     try:
         query = """
             INSERT INTO demand_positions (
@@ -410,11 +413,8 @@ async def insert_positions_batch(cur, batch_values: List[Dict[str, Any]]) -> int
                 yamarket_fbs, yamarket_dbs, yandex_direct, price_ru, wildberries, gis2, seo,
                 programmatic, avito, multiorders, estimated_discount
             ) VALUES (
-                %(id)s, %(demand_id)s, %(demand_number)s, %(date)s, %(counterparty)s, %(store)s, %(project)s, %(sales_channel)s,
-                %(product_name)s, %(quantity)s, %(price)s, %(amount)s, %(cost_price)s, %(article)s, %(code)s, %(overhead)s, %(profit)s,
-                %(promo_period)s, %(delivery_amount)s, %(admin_data)s, %(gdeslon)s, %(cityads)s, %(ozon)s, %(ozon_fbs)s,
-                %(yamarket_fbs)s, %(yamarket_dbs)s, %(yandex_direct)s, %(price_ru)s, %(wildberries)s, %(gis2)s, %(seo)s,
-                %(programmatic)s, %(avito)s, %(multiorders)s, %(estimated_discount)s
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34
             )
             ON CONFLICT (id) DO UPDATE SET
                 demand_id = EXCLUDED.demand_id,
@@ -453,11 +453,59 @@ async def insert_positions_batch(cur, batch_values: List[Dict[str, Any]]) -> int
                 estimated_discount = EXCLUDED.estimated_discount
         """
         
-        execute_batch(cur, query, batch_values)
-        return len(batch_values)
+        # Преобразуем данные в список кортежей
+        values = []
+        for pos in batch_values:
+            try:
+                row = (
+                    pos['id'],
+                    pos['demand_id'],
+                    pos['demand_number'],
+                    pos['date'],
+                    pos['counterparty'],
+                    pos['store'],
+                    pos['project'],
+                    pos['sales_channel'],
+                    pos['product_name'],
+                    float(pos['quantity']),
+                    float(pos['price']),
+                    float(pos['amount']),
+                    float(pos['cost_price']),
+                    pos['article'],
+                    pos['code'],
+                    float(pos.get('overhead', 0)),
+                    float(pos.get('profit', 0)),
+                    pos['promo_period'],
+                    float(pos.get('delivery_amount', 0)),
+                    float(pos.get('admin_data', 0)),
+                    float(pos.get('gdeslon', 0)),
+                    float(pos.get('cityads', 0)),
+                    float(pos.get('ozon', 0)),
+                    float(pos.get('ozon_fbs', 0)),
+                    float(pos.get('yamarket_fbs', 0)),
+                    float(pos.get('yamarket_dbs', 0)),
+                    float(pos.get('yandex_direct', 0)),
+                    float(pos.get('price_ru', 0)),
+                    float(pos.get('wildberries', 0)),
+                    float(pos.get('gis2', 0)),
+                    float(pos.get('seo', 0)),
+                    float(pos.get('programmatic', 0)),
+                    float(pos.get('avito', 0)),
+                    float(pos.get('multiorders', 0)),
+                    float(pos.get('estimated_discount', 0))
+                )
+                values.append(row)
+            except Exception as e:
+                logger.error(f"Ошибка подготовки позиции {pos.get('id', 'unknown')}: {str(e)}")
+                continue
+        
+        if values:
+            await conn.executemany(query, values)
+            return len(values)
+        return 0
     
     except Exception as e:
-        logger.error(f"Ошибка при массовой вставке позиций: {str(e)}")
+        logger.error(f"Ошибка при вставке позиций: {str(e)}")
         return 0
 
 def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
@@ -735,7 +783,8 @@ async def export_excel(date_range: DateRange):
         output = BytesIO()
         wb = Workbook()
         
-        if len(wb.worksheets) > 0:
+        # Удаляем дефолтный лист
+        if wb.worksheets:
             wb.remove(wb.worksheets[0])
         
         conn = await get_db_connection()
@@ -748,16 +797,17 @@ async def export_excel(date_range: DateRange):
             wb.save(output)
             output.seek(0)
             
-            # Используем ASCII-имя файла
             filename = f"report_{date_range.start_date[:10]}_{date_range.end_date[:10]}.xlsx"
+            
+            headers = {
+                "Content-Disposition": f"attachment; filename={filename}",
+                "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            }
             
             return StreamingResponse(
                 output,
-                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                headers={
-                    "Content-Disposition": f"attachment; filename={filename}",
-                    "Content-Type": "application/octet-stream"
-                }
+                headers=headers,
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
             
         except Exception as e:
