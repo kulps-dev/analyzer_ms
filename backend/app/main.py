@@ -1944,34 +1944,24 @@ async def process_single_demand(demand: Dict) -> bool:
             logger.error("Некорректные данные позиций")
             return False
             
-        # Сохраняем в БД (синхронные операции)
+        # Сохраняем в БД
         conn = get_db_connection()
         cur = conn.cursor()
         
-        try:
-            # Обновляем заголовок отгрузки
-            await asyncio.get_event_loop().run_in_executor(
-                None, 
-                lambda: insert_demands_batch(cur, [demand_data])
-            )
+        # Обновляем заголовок отгрузки
+        await insert_demands_batch(cur, [demand_data])
             
-            # Обновляем позиции (удаляем старые, добавляем новые)
-            await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: update_demand_positions(cur, demand_data['id'], positions_data)
-            )
+        # Обновляем позиции (удаляем старые, добавляем новые)
+        await update_demand_positions(cur, demand_data['id'], positions_data)
             
-            conn.commit()
-            logger.debug(f"Данные отгрузки {demand_data['id']} сохранены")
-            return True
-            
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Ошибка при работе с БД: {str(e)}")
-            return False
+        conn.commit()
+        logger.debug(f"Данные отгрузки {demand_data['id']} сохранены")
+        return True
             
     except Exception as e:
         logger.error(f"Ошибка сохранения отгрузки: {str(e)}")
+        if conn:
+            conn.rollback()
         return False
     finally:
         if conn:
