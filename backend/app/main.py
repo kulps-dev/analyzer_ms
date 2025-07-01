@@ -2010,7 +2010,7 @@ def prepare_positions_data(demand: Dict) -> List[Dict]:
         return []
 
 async def update_demand_positions(cur, demand_id: str, positions: List[Dict]):
-    """Обновляет позиции отгрузки в БД"""
+    """Обновляет позиции отгрузки в БД (асинхронная версия)"""
     try:
         # Удаляем старые позиции
         await cur.execute("DELETE FROM demand_positions WHERE demand_id = %s", (demand_id,))
