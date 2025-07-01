@@ -293,8 +293,8 @@ async def process_demands_batch(demands: List[Dict[str, Any]], task_id: str):
         if conn:
             conn.close()
 
-async def insert_demands_batch(cur, batch_values: List[Dict[str, Any]]) -> int:
-    """Массовая вставка пакета данных отгрузок"""
+async def insert_demands_batch(conn, batch_values):
+    """Асинхронная массовая вставка отгрузок"""
     try:
         query = """
             INSERT INTO demands (
@@ -304,11 +304,11 @@ async def insert_demands_batch(cur, batch_values: List[Dict[str, Any]]) -> int:
                 yamarket_dbs, yandex_direct, price_ru, wildberries, gis2, seo,
                 programmatic, avito, multiorders, estimated_discount, status, comment
             ) VALUES (
-                %(id)s, %(number)s, %(date)s, %(counterparty)s, %(store)s, %(project)s, %(sales_channel)s,
-                %(amount)s, %(cost_price)s, %(overhead)s, %(profit)s, %(promo_period)s, %(delivery_amount)s,
-                %(admin_data)s, %(gdeslon)s, %(cityads)s, %(ozon)s, %(ozon_fbs)s, %(yamarket_fbs)s,
-                %(yamarket_dbs)s, %(yandex_direct)s, %(price_ru)s, %(wildberries)s, %(gis2)s, %(seo)s,
-                %(programmatic)s, %(avito)s, %(multiorders)s, %(estimated_discount)s, %(status)s, %(comment)s
+                $1, $2, $3, $4, $5, $6, $7,
+                $8, $9, $10, $11, $12, $13,
+                $14, $15, $16, $17, $18, $19,
+                $20, $21, $22, $23, $24, $25,
+                $26, $27, $28, $29, $30, $31
             )
             ON CONFLICT (id) DO UPDATE SET
                 number = EXCLUDED.number,
@@ -343,7 +343,24 @@ async def insert_demands_batch(cur, batch_values: List[Dict[str, Any]]) -> int:
                 comment = EXCLUDED.comment
         """
         
-        await execute_batch(cur, query, batch_values)
+        # Преобразуем словари в кортежи
+        values = [
+            (
+                item['id'], item['number'], item['date'], item['counterparty'],
+                item['store'], item['project'], item['sales_channel'],
+                item['amount'], item['cost_price'], item['overhead'],
+                item['profit'], item['promo_period'], item['delivery_amount'],
+                item['admin_data'], item['gdeslon'], item['cityads'],
+                item['ozon'], item['ozon_fbs'], item['yamarket_fbs'],
+                item['yamarket_dbs'], item['yandex_direct'], item['price_ru'],
+                item['wildberries'], item['gis2'], item['seo'],
+                item['programmatic'], item['avito'], item['multiorders'],
+                item['estimated_discount'], item['status'], item['comment']
+            )
+            for item in batch_values
+        ]
+        
+        await conn.executemany(query, values)
         return len(batch_values)
     
     except Exception as e:
@@ -1966,23 +1983,6 @@ async def process_single_demand(demand: Dict) -> bool:
         if conn:
             await conn.close()
 
-def update_demand_positions(cur, demand_id: str, positions: List[Dict]):
-    """Обновляет позиции отгрузки в БД (синхронная версия)"""
-    try:
-        # Удаляем старые позиции
-        cur.execute("DELETE FROM demand_positions WHERE demand_id = %s", (demand_id,))
-        
-        # Добавляем новые, если они есть
-        if positions:
-            insert_positions_batch(cur, positions)
-            logger.info(f"Обновлено {len(positions)} позиций для отгрузки {demand_id}")
-        else:
-            logger.info("Нет позиций для обновления")
-            
-    except Exception as e:
-        logger.error(f"Ошибка обновления позиций: {str(e)}")
-        raise
-
 def prepare_positions_data(demand: Dict) -> List[Dict]:
     """Подготавливает данные позиций отгрузки"""
     try:
@@ -2008,18 +2008,85 @@ def prepare_positions_data(demand: Dict) -> List[Dict]:
         logger.error(f"Ошибка подготовки позиций: {str(e)}")
         return []
 
-async def update_demand_positions(cur, demand_id: str, positions: List[Dict]):
-    """Обновляет позиции отгрузки в БД (асинхронная версия)"""
+async def update_demand_positions(conn, demand_id: str, positions: List[Dict]):
+    """Асинхронное обновление позиций"""
     try:
         # Удаляем старые позиции
-        await cur.execute("DELETE FROM demand_positions WHERE demand_id = %s", (demand_id,))
+        await conn.execute(
+            "DELETE FROM demand_positions WHERE demand_id = $1", 
+            demand_id
+        )
         
-        # Добавляем новые, если они есть
         if positions:
-            await insert_positions_batch(cur, positions)
-            logger.info(f"Обновлено {len(positions)} позиций для отгрузки {demand_id}")
-        else:
-            logger.info("Нет позиций для обновления")
+            # Вставляем новые позиции
+            query = """
+                INSERT INTO demand_positions (
+                    id, demand_id, demand_number, date, counterparty, store, 
+                    project, sales_channel, product_name, quantity, price, 
+                    amount, cost_price, article, code, overhead, profit,
+                    promo_period, delivery_amount, admin_data, gdeslon,
+                    cityads, ozon, ozon_fbs, yamarket_fbs, yamarket_dbs,
+                    yandex_direct, price_ru, wildberries, gis2, seo,
+                    programmatic, avito, multiorders, estimated_discount
+                ) VALUES (
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                    $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+                    $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
+                    $31, $32, $33, $34
+                )
+                ON CONFLICT (id) DO UPDATE SET
+                    demand_id = EXCLUDED.demand_id,
+                    demand_number = EXCLUDED.demand_number,
+                    date = EXCLUDED.date,
+                    counterparty = EXCLUDED.counterparty,
+                    store = EXCLUDED.store,
+                    project = EXCLUDED.project,
+                    sales_channel = EXCLUDED.sales_channel,
+                    product_name = EXCLUDED.product_name,
+                    quantity = EXCLUDED.quantity,
+                    price = EXCLUDED.price,
+                    amount = EXCLUDED.amount,
+                    cost_price = EXCLUDED.cost_price,
+                    article = EXCLUDED.article,
+                    code = EXCLUDED.code,
+                    overhead = EXCLUDED.overhead,
+                    profit = EXCLUDED.profit,
+                    promo_period = EXCLUDED.promo_period,
+                    delivery_amount = EXCLUDED.delivery_amount,
+                    admin_data = EXCLUDED.admin_data,
+                    gdeslon = EXCLUDED.gdeslon,
+                    cityads = EXCLUDED.cityads,
+                    ozon = EXCLUDED.ozon,
+                    ozon_fbs = EXCLUDED.ozon_fbs,
+                    yamarket_fbs = EXCLUDED.yamarket_fbs,
+                    yamarket_dbs = EXCLUDED.yamarket_dbs,
+                    yandex_direct = EXCLUDED.yandex_direct,
+                    price_ru = EXCLUDED.price_ru,
+                    wildberries = EXCLUDED.wildberries,
+                    gis2 = EXCLUDED.gis2,
+                    seo = EXCLUDED.seo,
+                    programmatic = EXCLUDED.programmatic,
+                    avito = EXCLUDED.avito,
+                    multiorders = EXCLUDED.multiorders,
+                    estimated_discount = EXCLUDED.estimated_discount
+            """
+            
+            # Подготовка данных для вставки
+            values = [(
+                p['id'], p['demand_id'], p['demand_number'], p['date'],
+                p['counterparty'], p['store'], p['project'], p['sales_channel'],
+                p['product_name'], p['quantity'], p['price'], p['amount'],
+                p['cost_price'], p['article'], p['code'], p['overhead'],
+                p['profit'], p['promo_period'], p['delivery_amount'],
+                p['admin_data'], p['gdeslon'], p['cityads'], p['ozon'],
+                p['ozon_fbs'], p['yamarket_fbs'], p['yamarket_dbs'],
+                p['yandex_direct'], p['price_ru'], p['wildberries'],
+                p['gis2'], p['seo'], p['programmatic'], p['avito'],
+                p['multiorders'], p['estimated_discount']
+            ) for p in positions]
+            
+            await conn.executemany(query, values)
+            logger.info(f"Обновлено {len(positions)} позиций")
             
     except Exception as e:
         logger.error(f"Ошибка обновления позиций: {str(e)}")
