@@ -359,7 +359,7 @@ async def insert_demands_batch(conn, batch_values):
                 row = (
                     item['id'], 
                     item['number'], 
-                    date_value,  # Используем преобразованную дату
+                    date_value,
                     item['counterparty'],
                     item['store'], 
                     item['project'], 
@@ -483,7 +483,6 @@ def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
             date = None
             logger.warning(f"Не удалось распарсить дату: {moment}")
 
-    # Остальная обработка данных остается без изменений
     overhead_data = demand.get("overhead", {})
     overhead_sum = float(overhead_data.get("sum", 0)) / 100
     
@@ -494,7 +493,7 @@ def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
     values = {
         "id": demand_id[:255],
         "number": str(demand.get("name", ""))[:50],
-        "date": date,  # Используем преобразованный объект datetime
+        "date": date,
         "counterparty": str(demand.get("agent", {}).get("name", ""))[:255],
         "store": str(demand.get("store", {}).get("name", ""))[:255],
         "project": str(demand.get("project", {}).get("name", "Без проекта"))[:255],
@@ -2123,7 +2122,7 @@ async def update_demand_positions(conn, demand_id: str, positions: List[Dict]):
     for pos in positions:
         try:
             # Преобразование даты
-            pos_date = pos.get('date")
+            pos_date = pos.get('date')
             if isinstance(pos_date, str):
                 try:
                     pos_date = datetime.strptime(pos_date, "%Y-%m-%d %H:%M:%S.%f")
