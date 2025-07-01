@@ -87,26 +87,31 @@ class WebhookData(BaseModel):
 tasks_status = {}
 
 async def get_db_connection():
-    return await asyncpg.connect(**DB_CONFIG)
+    return await asyncpg.connect(
+        host="87.228.99.200",
+        port=5432,
+        database="MS",
+        user="louella",
+        password="XBcMJoEO1ljb",
+        ssl="verify-ca"
+    )
 
-def init_db():
-    """Инициализация базы данных - создание таблиц если они не существуют"""
+async def init_db():
+    """Асинхронная инициализация базы данных"""
     conn = None
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
+        conn = await get_db_connection()
         
-        # Проверяем существование таблицы demands
-        cur.execute("""
+        # Проверка существования таблицы demands
+        exists = await conn.fetchval("""
             SELECT EXISTS (
                 SELECT FROM information_schema.tables 
                 WHERE table_name = 'demands'
             )
         """)
-        demands_exists = cur.fetchone()[0]
         
-        if not demands_exists:
-            cur.execute("""
+        if not exists:
+            await conn.execute("""
                 CREATE TABLE demands (
                     id VARCHAR(255) PRIMARY KEY,
                     number VARCHAR(50),
@@ -141,19 +146,18 @@ def init_db():
                     comment VARCHAR(255)
                 )
             """)
-            logger.info("Таблица demands успешно создана")
+            logger.info("Таблица demands создана")
         
-        # Проверяем существование таблицы demand_positions
-        cur.execute("""
+        # Аналогично для demand_positions
+        exists = await conn.fetchval("""
             SELECT EXISTS (
                 SELECT FROM information_schema.tables 
                 WHERE table_name = 'demand_positions'
             )
         """)
-        positions_exists = cur.fetchone()[0]
         
-        if not positions_exists:
-            cur.execute("""
+        if not exists:
+            await conn.execute("""
                 CREATE TABLE demand_positions (
                     id VARCHAR(255) PRIMARY KEY,
                     demand_id VARCHAR(255) REFERENCES demands(id),
@@ -192,22 +196,21 @@ def init_db():
                     estimated_discount NUMERIC(15, 2)
                 )
             """)
-            logger.info("Таблица demand_positions успешно создана")
-        
-        conn.commit()
-        
+            logger.info("Таблица demand_positions создана")
+            
     except Exception as e:
         logger.error(f"Ошибка при инициализации базы данных: {str(e)}")
         if conn:
-            conn.rollback()
+            await conn.close()
+        raise
     finally:
         if conn:
-            conn.close()
+            await conn.close()
 
 @app.on_event("startup")
 async def startup_event():
-    """Действия при старте приложения"""
-    init_db()
+    """Асинхронные действия при старте приложения"""
+    await init_db()
     logger.info("Приложение запущено, база данных инициализирована")
 
 async def process_demands_batch(demands: List[Dict[str, Any]], task_id: str):
