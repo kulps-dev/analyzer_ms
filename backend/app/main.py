@@ -1944,27 +1944,55 @@ async def process_single_demand(demand: Dict) -> bool:
             logger.error("Некорректные данные позиций")
             return False
             
-        # Сохраняем в БД
+        # Сохраняем в БД (синхронные операции)
         conn = get_db_connection()
-        with conn:
-            with conn.cursor() as cur:
-                # Обновляем заголовок отгрузки
-                await insert_demands_batch(cur, [demand_data])
-                
-                # Обновляем позиции (удаляем старые, добавляем новые)
-                await update_demand_positions(cur, demand_data['id'], positions_data)
-                
-        logger.debug(f"Данные отгрузки {demand_data['id']} сохранены")
-        return True
+        cur = conn.cursor()
         
+        try:
+            # Обновляем заголовок отгрузки
+            await asyncio.get_event_loop().run_in_executor(
+                None, 
+                lambda: insert_demands_batch(cur, [demand_data])
+            )
+            
+            # Обновляем позиции (удаляем старые, добавляем новые)
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: update_demand_positions(cur, demand_data['id'], positions_data)
+            )
+            
+            conn.commit()
+            logger.debug(f"Данные отгрузки {demand_data['id']} сохранены")
+            return True
+            
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Ошибка при работе с БД: {str(e)}")
+            return False
+            
     except Exception as e:
         logger.error(f"Ошибка сохранения отгрузки: {str(e)}")
-        if conn:
-            conn.rollback()
         return False
     finally:
         if conn:
             conn.close()
+
+def update_demand_positions(cur, demand_id: str, positions: List[Dict]):
+    """Обновляет позиции отгрузки в БД (синхронная версия)"""
+    try:
+        # Удаляем старые позиции
+        cur.execute("DELETE FROM demand_positions WHERE demand_id = %s", (demand_id,))
+        
+        # Добавляем новые, если они есть
+        if positions:
+            insert_positions_batch(cur, positions)
+            logger.info(f"Обновлено {len(positions)} позиций для отгрузки {demand_id}")
+        else:
+            logger.info("Нет позиций для обновления")
+            
+    except Exception as e:
+        logger.error(f"Ошибка обновления позиций: {str(e)}")
+        raise
 
 def prepare_positions_data(demand: Dict) -> List[Dict]:
     """Подготавливает данные позиций отгрузки"""
