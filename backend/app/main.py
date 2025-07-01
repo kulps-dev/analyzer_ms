@@ -24,6 +24,7 @@ import json
 from fastapi import Response
 from fastapi.responses import StreamingResponse
 from fastapi import Request
+from typing import Optional, Dict, Any, List
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO)
@@ -1827,6 +1828,7 @@ async def export_to_gsheet(date_range: DateRange):
             content={"detail": f"Ошибка при создании таблицы: {str(e)}"}
         )
 
+
 @app.post("/api/webhook")
 async def handle_moysklad_webhook(webhook_data: WebhookData, background_tasks: BackgroundTasks):
     """
@@ -1899,7 +1901,7 @@ def is_valid_demand_event(event: WebhookEvent) -> bool:
         
     return True
 
-def extract_demand_id(event: WebhookEvent) -> str:
+def extract_demand_id(event: WebhookEvent) -> Optional[str]:
     """Извлекает ID отгрузки из события"""
     try:
         href = event.meta.get('href', '')
