@@ -27,6 +27,7 @@ from fastapi import Request
 from typing import Optional, Dict, Any, List
 import asyncpg
 from asyncpg.transaction import Transaction
+from datetime import datetime
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO)
@@ -294,7 +295,7 @@ async def process_demands_batch(demands: List[Dict[str, Any]], task_id: str):
             conn.close()
 
 async def insert_demands_batch(conn, batch_values):
-    """Асинхронная массовая вставка отгрузок"""
+    """Асинхронная массовая вставка отгрузок с обработкой даты"""
     try:
         query = """
             INSERT INTO demands (
@@ -343,25 +344,63 @@ async def insert_demands_batch(conn, batch_values):
                 comment = EXCLUDED.comment
         """
         
-        # Преобразуем словари в кортежи
-        values = [
-            (
-                item['id'], item['number'], item['date'], item['counterparty'],
-                item['store'], item['project'], item['sales_channel'],
-                item['amount'], item['cost_price'], item['overhead'],
-                item['profit'], item['promo_period'], item['delivery_amount'],
-                item['admin_data'], item['gdeslon'], item['cityads'],
-                item['ozon'], item['ozon_fbs'], item['yamarket_fbs'],
-                item['yamarket_dbs'], item['yandex_direct'], item['price_ru'],
-                item['wildberries'], item['gis2'], item['seo'],
-                item['programmatic'], item['avito'], item['multiorders'],
-                item['estimated_discount'], item['status'], item['comment']
-            )
-            for item in batch_values
-        ]
+        # Преобразуем словари в кортежи с правильными типами данных
+        values = []
+        for item in batch_values:
+            try:
+                # Преобразование даты, если это строка
+                date_value = item['date']
+                if isinstance(date_value, str):
+                    try:
+                        date_value = datetime.strptime(date_value, "%Y-%m-%d %H:%M:%S.%f")
+                    except ValueError:
+                        date_value = datetime.strptime(date_value, "%Y-%m-%d %H:%M:%S")
+                
+                row = (
+                    item['id'], 
+                    item['number'], 
+                    date_value,  # Используем преобразованную дату
+                    item['counterparty'],
+                    item['store'], 
+                    item['project'], 
+                    item['sales_channel'],
+                    float(item['amount']),
+                    float(item['cost_price']),
+                    float(item['overhead']),
+                    float(item['profit']),
+                    item['promo_period'],
+                    float(item['delivery_amount']),
+                    float(item['admin_data']),
+                    float(item['gdeslon']),
+                    float(item['cityads']),
+                    float(item['ozon']),
+                    float(item['ozon_fbs']),
+                    float(item['yamarket_fbs']),
+                    float(item['yamarket_dbs']),
+                    float(item['yandex_direct']),
+                    float(item['price_ru']),
+                    float(item['wildberries']),
+                    float(item['gis2']),
+                    float(item['seo']),
+                    float(item['programmatic']),
+                    float(item['avito']),
+                    float(item['multiorders']),
+                    float(item['estimated_discount']),
+                    item['status'],
+                    item['comment']
+                )
+                values.append(row)
+            except Exception as e:
+                logger.error(f"Ошибка подготовки строки для вставки: {str(e)}")
+                continue
         
+        if not values:
+            logger.warning("Нет валидных данных для вставки")
+            return 0
+        
+        # Вставляем данные
         await conn.executemany(query, values)
-        return len(batch_values)
+        return len(values)
     
     except Exception as e:
         logger.error(f"Ошибка при массовой вставке отгрузок: {str(e)}")
@@ -433,20 +472,29 @@ def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
     demand_id = str(demand.get("id", ""))
     attributes = demand.get("attributes", [])
     
-    # Обработка накладных расходов (overhead)
+    # Обработка даты
+    moment = demand.get("moment")
+    try:
+        date = datetime.strptime(moment, "%Y-%m-%d %H:%M:%S.%f") if moment else None
+    except ValueError:
+        try:
+            date = datetime.strptime(moment, "%Y-%m-%d %H:%M:%S") if moment else None
+        except (ValueError, TypeError):
+            date = None
+            logger.warning(f"Не удалось распарсить дату: {moment}")
+
+    # Остальная обработка данных остается без изменений
     overhead_data = demand.get("overhead", {})
     overhead_sum = float(overhead_data.get("sum", 0)) / 100
     
-    # Получаем себестоимость
     cost_price = moysklad.get_demand_cost_price(demand_id)
     demand_sum = float(demand.get("sum", 0)) / 100
     profit = demand_sum - cost_price - overhead_sum
     
-    # Основные данные
     values = {
         "id": demand_id[:255],
         "number": str(demand.get("name", ""))[:50],
-        "date": demand.get("moment", ""),
+        "date": date,  # Используем преобразованный объект datetime
         "counterparty": str(demand.get("agent", {}).get("name", ""))[:255],
         "store": str(demand.get("store", {}).get("name", ""))[:255],
         "project": str(demand.get("project", {}).get("name", "Без проекта"))[:255],
@@ -2009,85 +2057,133 @@ def prepare_positions_data(demand: Dict) -> List[Dict]:
         return []
 
 async def update_demand_positions(conn, demand_id: str, positions: List[Dict]):
-    """Асинхронное обновление позиций"""
-    try:
-        # Удаляем старые позиции
-        await conn.execute(
-            "DELETE FROM demand_positions WHERE demand_id = $1", 
-            demand_id
+    """Асинхронное обновление позиций с проверкой данных"""
+    if not positions:
+        logger.info("Нет позиций для обновления")
+        return
+
+    # Удаляем старые позиции
+    await conn.execute("DELETE FROM demand_positions WHERE demand_id = $1", demand_id)
+    
+    # Подготовка запроса
+    query = """
+        INSERT INTO demand_positions (
+            id, demand_id, demand_number, date, counterparty, store, 
+            project, sales_channel, product_name, quantity, price, 
+            amount, cost_price, article, code, overhead, profit,
+            promo_period, delivery_amount, admin_data, gdeslon,
+            cityads, ozon, ozon_fbs, yamarket_fbs, yamarket_dbs,
+            yandex_direct, price_ru, wildberries, gis2, seo,
+            programmatic, avito, multiorders, estimated_discount
+        ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+            $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+            $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
+            $31, $32, $33, $34
         )
+        ON CONFLICT (id) DO UPDATE SET
+            demand_id = EXCLUDED.demand_id,
+            demand_number = EXCLUDED.demand_number,
+            date = EXCLUDED.date,
+            counterparty = EXCLUDED.counterparty,
+            store = EXCLUDED.store,
+            project = EXCLUDED.project,
+            sales_channel = EXCLUDED.sales_channel,
+            product_name = EXCLUDED.product_name,
+            quantity = EXCLUDED.quantity,
+            price = EXCLUDED.price,
+            amount = EXCLUDED.amount,
+            cost_price = EXCLUDED.cost_price,
+            article = EXCLUDED.article,
+            code = EXCLUDED.code,
+            overhead = EXCLUDED.overhead,
+            profit = EXCLUDED.profit,
+            promo_period = EXCLUDED.promo_period,
+            delivery_amount = EXCLUDED.delivery_amount,
+            admin_data = EXCLUDED.admin_data,
+            gdeslon = EXCLUDED.gdeslon,
+            cityads = EXCLUDED.cityads,
+            ozon = EXCLUDED.ozon,
+            ozon_fbs = EXCLUDED.ozon_fbs,
+            yamarket_fbs = EXCLUDED.yamarket_fbs,
+            yamarket_dbs = EXCLUDED.yamarket_dbs,
+            yandex_direct = EXCLUDED.yandex_direct,
+            price_ru = EXCLUDED.price_ru,
+            wildberries = EXCLUDED.wildberries,
+            gis2 = EXCLUDED.gis2,
+            seo = EXCLUDED.seo,
+            programmatic = EXCLUDED.programmatic,
+            avito = EXCLUDED.avito,
+            multiorders = EXCLUDED.multiorders,
+            estimated_discount = EXCLUDED.estimated_discount
+    """
+    
+    # Подготовка данных с проверкой и преобразованием типов
+    values = []
+    for pos in positions:
+        try:
+            # Преобразование даты
+            pos_date = pos.get('date")
+            if isinstance(pos_date, str):
+                try:
+                    pos_date = datetime.strptime(pos_date, "%Y-%m-%d %H:%M:%S.%f")
+                except ValueError:
+                    pos_date = datetime.strptime(pos_date, "%Y-%m-%d %H:%M:%S")
+            
+            row = (
+                pos.get('id'),
+                pos.get('demand_id'),
+                pos.get('demand_number'),
+                pos_date,
+                pos.get('counterparty'),
+                pos.get('store'),
+                pos.get('project'),
+                pos.get('sales_channel'),
+                pos.get('product_name'),
+                float(pos.get('quantity', 0)),
+                float(pos.get('price', 0)),
+                float(pos.get('amount', 0)),
+                float(pos.get('cost_price', 0)),
+                pos.get('article'),
+                pos.get('code'),
+                float(pos.get('overhead', 0)),
+                float(pos.get('profit', 0)),
+                pos.get('promo_period'),
+                float(pos.get('delivery_amount', 0)),
+                float(pos.get('admin_data', 0)),
+                float(pos.get('gdeslon', 0)),
+                float(pos.get('cityads', 0)),
+                float(pos.get('ozon', 0)),
+                float(pos.get('ozon_fbs', 0)),
+                float(pos.get('yamarket_fbs', 0)),
+                float(pos.get('yamarket_dbs', 0)),
+                float(pos.get('yandex_direct', 0)),
+                float(pos.get('price_ru', 0)),
+                float(pos.get('wildberries', 0)),
+                float(pos.get('gis2', 0)),
+                float(pos.get('seo', 0)),
+                float(pos.get('programmatic', 0)),
+                float(pos.get('avito', 0)),
+                float(pos.get('multiorders', 0)),
+                float(pos.get('estimated_discount', 0))
+            )
+            values.append(row)
+        except Exception as e:
+            logger.error(f"Ошибка подготовки позиции {pos.get('id')}: {str(e)}")
+            continue
+    
+    if not values:
+        logger.warning("Нет валидных позиций для вставки")
+        return
+    
+    try:
+        # Вставляем данные пакетами по 100 записей
+        batch_size = 100
+        for i in range(0, len(values), batch_size):
+            batch = values[i:i + batch_size]
+            await conn.executemany(query, batch)
         
-        if positions:
-            # Вставляем новые позиции
-            query = """
-                INSERT INTO demand_positions (
-                    id, demand_id, demand_number, date, counterparty, store, 
-                    project, sales_channel, product_name, quantity, price, 
-                    amount, cost_price, article, code, overhead, profit,
-                    promo_period, delivery_amount, admin_data, gdeslon,
-                    cityads, ozon, ozon_fbs, yamarket_fbs, yamarket_dbs,
-                    yandex_direct, price_ru, wildberries, gis2, seo,
-                    programmatic, avito, multiorders, estimated_discount
-                ) VALUES (
-                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                    $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-                    $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
-                    $31, $32, $33, $34
-                )
-                ON CONFLICT (id) DO UPDATE SET
-                    demand_id = EXCLUDED.demand_id,
-                    demand_number = EXCLUDED.demand_number,
-                    date = EXCLUDED.date,
-                    counterparty = EXCLUDED.counterparty,
-                    store = EXCLUDED.store,
-                    project = EXCLUDED.project,
-                    sales_channel = EXCLUDED.sales_channel,
-                    product_name = EXCLUDED.product_name,
-                    quantity = EXCLUDED.quantity,
-                    price = EXCLUDED.price,
-                    amount = EXCLUDED.amount,
-                    cost_price = EXCLUDED.cost_price,
-                    article = EXCLUDED.article,
-                    code = EXCLUDED.code,
-                    overhead = EXCLUDED.overhead,
-                    profit = EXCLUDED.profit,
-                    promo_period = EXCLUDED.promo_period,
-                    delivery_amount = EXCLUDED.delivery_amount,
-                    admin_data = EXCLUDED.admin_data,
-                    gdeslon = EXCLUDED.gdeslon,
-                    cityads = EXCLUDED.cityads,
-                    ozon = EXCLUDED.ozon,
-                    ozon_fbs = EXCLUDED.ozon_fbs,
-                    yamarket_fbs = EXCLUDED.yamarket_fbs,
-                    yamarket_dbs = EXCLUDED.yamarket_dbs,
-                    yandex_direct = EXCLUDED.yandex_direct,
-                    price_ru = EXCLUDED.price_ru,
-                    wildberries = EXCLUDED.wildberries,
-                    gis2 = EXCLUDED.gis2,
-                    seo = EXCLUDED.seo,
-                    programmatic = EXCLUDED.programmatic,
-                    avito = EXCLUDED.avito,
-                    multiorders = EXCLUDED.multiorders,
-                    estimated_discount = EXCLUDED.estimated_discount
-            """
-            
-            # Подготовка данных для вставки
-            values = [(
-                p['id'], p['demand_id'], p['demand_number'], p['date'],
-                p['counterparty'], p['store'], p['project'], p['sales_channel'],
-                p['product_name'], p['quantity'], p['price'], p['amount'],
-                p['cost_price'], p['article'], p['code'], p['overhead'],
-                p['profit'], p['promo_period'], p['delivery_amount'],
-                p['admin_data'], p['gdeslon'], p['cityads'], p['ozon'],
-                p['ozon_fbs'], p['yamarket_fbs'], p['yamarket_dbs'],
-                p['yandex_direct'], p['price_ru'], p['wildberries'],
-                p['gis2'], p['seo'], p['programmatic'], p['avito'],
-                p['multiorders'], p['estimated_discount']
-            ) for p in positions]
-            
-            await conn.executemany(query, values)
-            logger.info(f"Обновлено {len(positions)} позиций")
-            
+        logger.info(f"Успешно обновлено {len(values)} позиций для отгрузки {demand_id}")
     except Exception as e:
-        logger.error(f"Ошибка обновления позиций: {str(e)}")
+        logger.error(f"Ошибка вставки позиций: {str(e)}")
         raise
