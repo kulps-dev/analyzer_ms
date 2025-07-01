@@ -745,11 +745,11 @@ async def export_excel(date_range: DateRange):
     try:
         logger.info(f"Начало экспорта данных с {date_range.start_date} по {date_range.end_date}")
         
-        # Создаем Excel файл в памяти
+        # Создаем Excel файл в памяти с указанием кодировки UTF-8
         output = BytesIO()
         wb = Workbook()
         
-        # Удаляем дефолтный лист, если он есть
+        # Удаляем дефолтный лист
         if len(wb.worksheets) > 0:
             wb.remove(wb.worksheets[0])
         
@@ -757,35 +757,30 @@ async def export_excel(date_range: DateRange):
         conn = await get_db_connection()
         
         try:
-            # 1. Лист с отгрузками
             await create_demands_sheet(wb, conn, date_range)
-            
-            # 2. Лист с товарами
             await create_positions_sheet(wb, conn, date_range)
-            
-            # 3. Лист со сводным отчетом по товарам
             await create_products_summary_sheet(wb, conn, date_range)
             
-            # Сохраняем workbook в BytesIO
+            # Сохраняем с указанием кодировки
             wb.save(output)
             output.seek(0)
             
-            # Формируем имя файла
-            filename = f"Отчет_по_отгрузкам_{date_range.start_date}_по_{date_range.end_date}.xlsx"
+            # Формируем имя файла с ASCII символами
+            filename = f"report_{date_range.start_date[:10]}_to_{date_range.end_date[:10]}.xlsx"
             
-            logger.info(f"Файл {filename} успешно сформирован")
-            
-            # Возвращаем файл как поток
+            # Возвращаем файл с правильными заголовками
             return StreamingResponse(
                 output,
                 media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                headers={"Content-Disposition": f"attachment; filename={filename}"}
+                headers={
+                    "Content-Disposition": f"attachment; filename={filename}",
+                    "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet; charset=utf-8"
+                }
             )
             
         except Exception as e:
             logger.error(f"Ошибка при формировании Excel: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Ошибка формирования Excel: {str(e)}")
-            
         finally:
             await conn.close()
             
