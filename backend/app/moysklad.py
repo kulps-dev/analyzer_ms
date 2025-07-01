@@ -49,22 +49,81 @@ class MoyskladAPI:
                 time.sleep(self.retry_delay * (attempt + 1))
         raise Exception("All retry attempts failed")
 
-    def get_demand_by_id(self, demand_id):
-        logger.info(f"Запрос отгрузки {demand_id} с позициями...")
-        url = f"{self.base_url}/entity/demand/{demand_id}"
-        params = {
-            'expand': 'positions,positions.assortment',
-            'limit': 1000
-        }
+    def get_demand_by_id(self, demand_id: str) -> Dict[str, Any]:
+        """Получить полные данные отгрузки по ID с позициями и дополнительной информацией"""
+        logger.info(f"Запрос отгрузки {demand_id}")
+        
         try:
+            # 1. Получаем основные данные отгрузки
+            url = f"{self.base_url}/entity/demand/{demand_id}"
+            params = {
+                'expand': 'agent,store,project,salesChannel,state',
+                'limit': 1000
+            }
+            
             response = self._make_request("GET", url, params=params)
-            data = response.json()
-            logger.info(f"Данные отгрузки: {data.get('name')}, позиций: {len(data.get('positions', []))}")
-            logger.debug(f"Первая позиция: {data.get('positions', [])[:1]}")
-            return data
+            demand_data = response.json()
+            
+            if not demand_data:
+                logger.error(f"Отгрузка {demand_id} не найдена")
+                return None
+
+            # 2. Получаем позиции отгрузки
+            positions_url = f"{self.base_url}/entity/demand/{demand_id}/positions"
+            positions_params = {
+                'expand': 'assortment',
+                'limit': 1000
+            }
+            
+            positions_response = self._make_request("GET", positions_url, params=positions_params)
+            positions_data = positions_response.json().get('rows', [])
+            
+            # 3. Получаем себестоимость позиций
+            cost_data = self._get_positions_cost_data(demand_id)
+            
+            # 4. Обогащаем данные позиций
+            enriched_positions = []
+            for position in positions_data:
+                position_id = position.get('id', '')
+                product = position.get('assortment', {})
+                
+                enriched_position = {
+                    'id': position_id,
+                    'quantity': position.get('quantity', 0),
+                    'price': position.get('price', 0),
+                    'cost_price': cost_data.get(position_id, 0) / 100,
+                    'product_name': product.get('name', ''),
+                    'article': product.get('article', ''),
+                    'code': product.get('code', ''),
+                    'meta': position.get('meta', {})
+                }
+                enriched_positions.append(enriched_position)
+            
+            # 5. Формируем итоговый объект отгрузки
+            result = {
+                'id': demand_id,
+                'name': demand_data.get('name', ''),
+                'moment': demand_data.get('moment', ''),
+                'sum': demand_data.get('sum', 0),
+                'agent': demand_data.get('agent', {}),
+                'store': demand_data.get('store', {}),
+                'project': demand_data.get('project', {}),
+                'salesChannel': demand_data.get('salesChannel', {}),
+                'state': demand_data.get('state', {}),
+                'attributes': demand_data.get('attributes', []),
+                'overhead': demand_data.get('overhead', {}),
+                'positions': enriched_positions
+            }
+            
+            logger.info(f"Успешно получена отгрузка {demand_data.get('name')} с {len(enriched_positions)} позициями")
+            return result
+            
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"HTTP ошибка при получении отгрузки {demand_id}: {http_err}")
+            return None
         except Exception as e:
-            logger.error(f"Ошибка получения отгрузки: {str(e)}")
-            raise
+            logger.error(f"Общая ошибка при обработке отгрузки {demand_id}: {str(e)}")
+            return None
 
     def get_paginated_data(self, url: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """Получение данных с пагинацией"""

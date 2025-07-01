@@ -1828,101 +1828,180 @@ async def export_to_gsheet(date_range: DateRange):
         )
 
 @app.post("/api/webhook")
-async def handle_moysklad_webhook(webhook_data: WebhookData):
-    try:
-        logger.info(f"Начало обработки вебхука. Событий: {len(webhook_data.events)}")
-        
-        for event in webhook_data.events:
-            if not event.meta or event.meta.get('type') != 'demand':
-                continue
+async def handle_moysklad_webhook(webhook_data: WebhookData, background_tasks: BackgroundTasks):
+    """
+    Обработчик вебхуков от МойСклад для обновления данных отгрузок в реальном времени
+    """
+    logger.info(f"Получен вебхук с {len(webhook_data.events)} событиями")
 
-            demand_id = event.meta.get('href', '').split('/')[-1]
+    # Обрабатываем события асинхронно в фоновой задаче
+    background_tasks.add_task(process_webhook_events, webhook_data)
+    
+    return {
+        "status": "accepted",
+        "message": "Запрос принят в обработку",
+        "events_count": len(webhook_data.events)
+    }
+
+async def process_webhook_events(webhook_data: WebhookData):
+    """Фоновая обработка событий вебхука"""
+    processed = 0
+    errors = 0
+    
+    for event in webhook_data.events:
+        try:
+            # Валидация события
+            if not is_valid_demand_event(event):
+                continue
+                
+            demand_id = extract_demand_id(event)
             if not demand_id:
                 continue
 
-            logger.info(f"Обработка отгрузки {demand_id}")
-
-            try:
-                # Получаем отгрузку с расширенными данными позиций
-                demand = moysklad.get_demand_by_id(demand_id)
-                if not demand:
-                    continue
-
-                # Подготовка данных
-                demand_values = prepare_demand_data(demand)
-                if not demand_values:
-                    continue
-
-                # Обработка позиций (новый улучшенный блок)
-                positions = demand.get('positions', {})
-                
-                # Преобразуем разные форматы в единый список
-                if isinstance(positions, dict):
-                    if 'rows' in positions:
-                        positions = positions['rows']  # Пагинированный ответ
-                    elif 'meta' in positions:
-                        positions = []  # Пустой ответ с метаданными
-                    else:
-                        positions = [positions]  # Единственная позиция
-                elif not isinstance(positions, list):
-                    positions = []  # Неизвестный формат
-
-                logger.info(f"Найдено позиций: {len(positions)}")
-                
-                # Подготовка данных позиций
-                positions_values = []
-                for pos in positions:
-                    try:
-                        if not isinstance(pos, dict):
-                            logger.warning(f"Некорректный формат позиции: {type(pos)}")
-                            continue
-                            
-                        # Добавляем отладочное логирование
-                        logger.debug(f"Обработка позиции: {pos.get('id')}, товар: {pos.get('assortment', {}).get('name')}")
-                        
-                        pos_data = prepare_position_data(demand, pos)
-                        if pos_data:
-                            positions_values.append(pos_data)
-                    except Exception as e:
-                        logger.error(f"Ошибка подготовки позиции: {str(e)}")
-
-                # Сохранение в БД (улучшенная версия)
-                conn = None
-                try:
-                    conn = get_db_connection()
-                    cur = conn.cursor()
-                    
-                    # 1. Обновляем заголовок отгрузки
-                    await insert_demands_batch(cur, [demand_values])
-                    
-                    # 2. Обновляем позиции только если они есть
-                    if positions_values:
-                        # Сначала удаляем старые
-                        cur.execute("DELETE FROM demand_positions WHERE demand_id = %s", (demand_id,))
-                        # Затем добавляем новые
-                        await insert_positions_batch(cur, positions_values)
-                        logger.info(f"Успешно сохранено позиций: {len(positions_values)}")
-                    else:
-                        logger.warning("Нет данных позиций для сохранения")
-                    
-                    conn.commit()
-                    logger.info(f"Отгрузка {demand_id} полностью обновлена")
-                    
-                except Exception as e:
-                    logger.error(f"Ошибка БД: {str(e)}")
-                    if conn:
-                        conn.rollback()
-                    raise
-                finally:
-                    if conn:
-                        conn.close()
-                        
-            except Exception as e:
-                logger.error(f"Ошибка обработки отгрузки: {str(e)}")
+            logger.info(f"Начало обработки отгрузки {demand_id}")
+            
+            # Получаем полные данные отгрузки
+            demand = await fetch_demand_with_retry(demand_id)
+            if not demand:
+                errors += 1
                 continue
+            
+            # Обрабатываем данные
+            success = await process_single_demand(demand)
+            
+            if success:
+                processed += 1
+                logger.info(f"Отгрузка {demand_id} успешно обработана")
+            else:
+                errors += 1
                 
-        return {"status": "success", "details": "Processing completed"}
+        except Exception as e:
+            errors += 1
+            logger.error(f"Критическая ошибка обработки события: {str(e)}")
+            continue
+    
+    logger.info(f"Обработка завершена. Успешно: {processed}, с ошибками: {errors}")
+
+def is_valid_demand_event(event: WebhookEvent) -> bool:
+    """Проверяет, является ли событие валидным для обработки"""
+    if not event.meta:
+        logger.debug("Событие без meta-данных пропущено")
+        return False
+        
+    entity_type = event.meta.get('type')
+    if entity_type != 'demand':
+        logger.debug(f"Событие типа {entity_type} пропущено")
+        return False
+        
+    if event.action not in ['CREATE', 'UPDATE', 'DELETE']:
+        logger.debug(f"Неизвестное действие {event.action} пропущено")
+        return False
+        
+    return True
+
+def extract_demand_id(event: WebhookEvent) -> str:
+    """Извлекает ID отгрузки из события"""
+    try:
+        href = event.meta.get('href', '')
+        return href.split('/')[-1] if href else None
+    except Exception as e:
+        logger.error(f"Ошибка извлечения ID отгрузки: {str(e)}")
+        return None
+
+async def fetch_demand_with_retry(demand_id: str, max_retries: int = 3) -> Optional[Dict]:
+    """Получает данные отгрузки с повторными попытками"""
+    for attempt in range(max_retries):
+        try:
+            demand = moysklad.get_demand_by_id(demand_id)
+            if demand:
+                return demand
+                
+            logger.warning(f"Попытка {attempt + 1}: данные отгрузки не получены")
+            
+        except Exception as e:
+            logger.error(f"Попытка {attempt + 1} ошибка: {str(e)}")
+        
+        if attempt < max_retries - 1:
+            await asyncio.sleep(2 ** attempt)  # Экспоненциальная задержка
+    
+    logger.error(f"Не удалось получить данные отгрузки {demand_id} после {max_retries} попыток")
+    return None
+
+async def process_single_demand(demand: Dict) -> bool:
+    """Обрабатывает одну отгрузку и сохраняет в БД"""
+    conn = None
+    try:
+        # Подготавливаем данные
+        demand_data = prepare_demand_data(demand)
+        if not demand_data:
+            logger.error("Не удалось подготовить данные отгрузки")
+            return False
+            
+        positions_data = prepare_positions_data(demand)
+        if not isinstance(positions_data, list):
+            logger.error("Некорректные данные позиций")
+            return False
+            
+        # Сохраняем в БД
+        conn = get_db_connection()
+        with conn:
+            with conn.cursor() as cur:
+                # Обновляем заголовок отгрузки
+                await insert_demands_batch(cur, [demand_data])
+                
+                # Обновляем позиции (удаляем старые, добавляем новые)
+                await update_demand_positions(cur, demand_data['id'], positions_data)
+                
+        logger.debug(f"Данные отгрузки {demand_data['id']} сохранены")
+        return True
         
     except Exception as e:
-        logger.critical(f"Фатальная ошибка: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Ошибка сохранения отгрузки: {str(e)}")
+        if conn:
+            conn.rollback()
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def prepare_positions_data(demand: Dict) -> List[Dict]:
+    """Подготавливает данные позиций отгрузки"""
+    try:
+        positions = demand.get('positions', [])
+        
+        # Нормализация формата позиций
+        if isinstance(positions, dict):
+            positions = positions.get('rows', [])
+            
+        if not isinstance(positions, list):
+            logger.warning(f"Некорректный формат позиций: {type(positions)}")
+            return []
+            
+        logger.info(f"Подготовка {len(positions)} позиций")
+        
+        return [
+            prepare_position_data(demand, pos) 
+            for pos in positions 
+            if isinstance(pos, dict)
+        ]
+        
+    except Exception as e:
+        logger.error(f"Ошибка подготовки позиций: {str(e)}")
+        return []
+
+async def update_demand_positions(cur, demand_id: str, positions: List[Dict]):
+    """Обновляет позиции отгрузки в БД"""
+    try:
+        # Удаляем старые позиции
+        await cur.execute("DELETE FROM demand_positions WHERE demand_id = %s", (demand_id,))
+        
+        # Добавляем новые, если они есть
+        if positions:
+            await insert_positions_batch(cur, positions)
+            logger.info(f"Обновлено {len(positions)} позиций для отгрузки {demand_id}")
+        else:
+            logger.info("Нет позиций для обновления")
+            
+    except Exception as e:
+        logger.error(f"Ошибка обновления позиций: {str(e)}")
+        raise
