@@ -402,10 +402,8 @@ async def insert_demands_batch(conn, batch_values):
         logger.error(f"Ошибка при вставке отгрузок: {str(e)}")
         return 0
 
-# main.py (исправленная часть)
-
 async def insert_positions_batch(conn, batch_values: List[Dict[str, Any]]) -> int:
-    """Асинхронная массовая вставка позиций"""
+    """Асинхронная массовая вставка позиций с правильным количеством параметров"""
     try:
         query = """
             INSERT INTO demand_positions (
@@ -529,6 +527,7 @@ async def process_single_demand(demand: Dict) -> bool:
             
         # Сохраняем в БД
         conn = await get_db_connection()
+        
         async with conn.transaction():
             # 1. Удаляем старые данные
             await conn.execute("DELETE FROM demand_positions WHERE demand_id = $1", demand_id)
@@ -641,98 +640,70 @@ def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
     return values
 
 def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> Dict[str, Any]:
-    """Подготовка данных позиции для вставки в БД"""
-    position_id = str(position.get("id", ""))
-    demand_id = str(demand.get("id", ""))
-    attributes = demand.get("attributes", [])
-    
-    # Получаем себестоимость позиции (уже в рублях)
-    cost_price = position.get("cost_price", 0.0)
-    
-    # Количество и цена
-    quantity = float(position.get("quantity", 0))
-    price = float(position.get("price", 0)) / 100
-    amount = quantity * price
-    
-    # Накладные расходы (overhead) из данных отгрузки
-    overhead_data = demand.get("overhead", {})
-    overhead_sum = (float(overhead_data.get("sum", 0)) / 100) if overhead_data else 0
-    
-    # Расчет доли накладных расходов для позиции
-    demand_sum = float(demand.get("sum", 0)) / 100
-    overhead_share = overhead_sum * (amount / demand_sum) if demand_sum > 0 else 0
-    
-    # Основные данные
-    values = {
-        "id": position_id[:255],
-        "demand_id": demand_id[:255],
-        "demand_number": str(demand.get("name", ""))[:50],
-        "date": demand.get("moment", ""),
-        "counterparty": str(demand.get("agent", {}).get("name", ""))[:255],
-        "store": str(demand.get("store", {}).get("name", ""))[:255],
-        "project": str(demand.get("project", {}).get("name", "Без проекта"))[:255],
-        "sales_channel": str(demand.get("salesChannel", {}).get("name", "Без канала"))[:255],
-        "product_name": str(position.get("product_name", ""))[:255],
-        "quantity": quantity,
-        "price": price,
-        "amount": amount,
-        "cost_price": cost_price,  # Себестоимость позиции
-        "article": str(position.get("article", ""))[:100],
-        "code": str(position.get("code", ""))[:100],
-        "overhead": overhead_share,
-        "profit": amount - cost_price - overhead_share,
-        "promo_period": "",
-        "delivery_amount": 0,
-        "admin_data": 0,
-        "gdeslon": 0,
-        "cityads": 0,
-        "ozon": 0,
-        "ozon_fbs": 0,
-        "yamarket_fbs": 0,
-        "yamarket_dbs": 0,
-        "yandex_direct": 0,
-        "price_ru": 0,
-        "wildberries": 0,
-        "gis2": 0,
-        "seo": 0,
-        "programmatic": 0,
-        "avito": 0,
-        "multiorders": 0,
-        "estimated_discount": 0
-    }
-
-    # Обработка атрибутов
-    attr_fields = {
-        "promo_period": ("Акционный период", ""),
-        "delivery_amount": ("Сумма доставки", 0),
-        "admin_data": ("Адмидат", 0),
-        "gdeslon": ("ГдеСлон", 0),
-        "cityads": ("CityAds", 0),
-        "ozon": ("Ozon", 0),
-        "ozon_fbs": ("Ozon FBS", 0),
-        "yamarket_fbs": ("Яндекс Маркет FBS", 0),
-        "yamarket_dbs": ("Яндекс Маркет DBS", 0),
-        "yandex_direct": ("Яндекс Директ", 0),
-        "price_ru": ("Price ru", 0),
-        "wildberries": ("Wildberries", 0),
-        "gis2": ("2Gis", 0),
-        "seo": ("SEO", 0),
-        "programmatic": ("Программатик", 0),
-        "avito": ("Авито", 0),
-        "multiorders": ("Мультиканальные заказы", 0),
-        "estimated_discount": ("Примерная скидка", 0)
-    }
-
-    for field, (attr_name, default) in attr_fields.items():
-        if field.endswith("_amount") or field == "estimated_discount":
-            try:
-                values[field] = float(get_attr_value(attributes, attr_name, default))
-            except (ValueError, TypeError):
-                values[field] = 0.0
-        else:
-            values[field] = str(get_attr_value(attributes, attr_name, default))[:255]
-    
-    return values
+    """Подготовка данных позиции для вставки в БД с проверкой типов"""
+    try:
+        position_id = str(position.get("id", ""))
+        demand_id = str(demand.get("id", ""))
+        
+        # Получаем себестоимость позиции
+        cost_price = float(position.get("cost_price", 0.0))
+        
+        # Количество и цена
+        quantity = float(position.get("quantity", 0))
+        price = float(position.get("price", 0)) / 100
+        amount = quantity * price
+        
+        # Накладные расходы
+        overhead_data = demand.get("overhead", {})
+        overhead_sum = (float(overhead_data.get("sum", 0)) / 100) if overhead_data else 0
+        
+        # Расчет доли накладных расходов для позиции
+        demand_sum = float(demand.get("sum", 0)) / 100
+        overhead_share = overhead_sum * (amount / demand_sum) if demand_sum > 0 else 0
+        
+        # Получаем атрибуты
+        attributes = demand.get("attributes", [])
+        
+        return {
+            "id": position_id[:255],
+            "demand_id": demand_id[:255],
+            "demand_number": str(demand.get("name", ""))[:50],
+            "date": demand.get("moment"),
+            "counterparty": str(demand.get("agent", {}).get("name", ""))[:255],
+            "store": str(demand.get("store", {}).get("name", ""))[:255],
+            "project": str(demand.get("project", {}).get("name", "Без проекта"))[:255],
+            "sales_channel": str(demand.get("salesChannel", {}).get("name", "Без канала"))[:255],
+            "product_name": str(position.get("product_name", ""))[:255],
+            "quantity": quantity,
+            "price": price,
+            "amount": amount,
+            "cost_price": cost_price,
+            "article": str(position.get("article", ""))[:100],
+            "code": str(position.get("code", ""))[:100],
+            "overhead": overhead_share,
+            "profit": amount - cost_price - overhead_share,
+            "promo_period": get_attr_value(attributes, "Акционный период", ""),
+            "delivery_amount": float(get_attr_value(attributes, "Сумма доставки", 0)),
+            "admin_data": float(get_attr_value(attributes, "Адмидат", 0)),
+            "gdeslon": float(get_attr_value(attributes, "ГдеСлон", 0)),
+            "cityads": float(get_attr_value(attributes, "CityAds", 0)),
+            "ozon": float(get_attr_value(attributes, "Ozon", 0)),
+            "ozon_fbs": float(get_attr_value(attributes, "Ozon FBS", 0)),
+            "yamarket_fbs": float(get_attr_value(attributes, "Яндекс Маркет FBS", 0)),
+            "yamarket_dbs": float(get_attr_value(attributes, "Яндекс Маркет DBS", 0)),
+            "yandex_direct": float(get_attr_value(attributes, "Яндекс Директ", 0)),
+            "price_ru": float(get_attr_value(attributes, "Price ru", 0)),
+            "wildberries": float(get_attr_value(attributes, "Wildberries", 0)),
+            "gis2": float(get_attr_value(attributes, "2Gis", 0)),
+            "seo": float(get_attr_value(attributes, "SEO", 0)),
+            "programmatic": float(get_attr_value(attributes, "Программатик", 0)),
+            "avito": float(get_attr_value(attributes, "Авито", 0)),
+            "multiorders": float(get_attr_value(attributes, "Мультиканальные заказы", 0)),
+            "estimated_discount": float(get_attr_value(attributes, "Примерная скидка", 0))
+        }
+    except Exception as e:
+        logger.error(f"Ошибка подготовки данных позиции: {str(e)}")
+        return None
 
 def get_attr_value(attrs, attr_name, default=""):
     """Безопасное извлечение атрибутов"""
@@ -818,47 +789,61 @@ async def get_task_status(task_id: str):
 
 @app.post("/api/export/excel")
 async def export_excel(date_range: DateRange):
-    """Экспорт данных в Excel файл"""
+    """Экспорт данных в Excel файл с обработкой ошибок"""
     try:
         logger.info(f"Начало экспорта данных с {date_range.start_date} по {date_range.end_date}")
         
-        output = BytesIO()
+        # Создаем буфер в памяти
+        output = io.BytesIO()
+        
+        # Создаем новую книгу Excel
         wb = Workbook()
         
         # Удаляем дефолтный лист
         if wb.worksheets:
             wb.remove(wb.worksheets[0])
         
+        # Подключаемся к БД
         conn = await get_db_connection()
         
         try:
+            # Создаем листы
             await create_demands_sheet(wb, conn, date_range)
             await create_positions_sheet(wb, conn, date_range)
             await create_products_summary_sheet(wb, conn, date_range)
             
+            # Сохраняем в буфер
             wb.save(output)
             output.seek(0)
             
+            # Формируем имя файла
             filename = f"report_{date_range.start_date[:10]}_{date_range.end_date[:10]}.xlsx"
             
+            # Возвращаем файл как поток
             return StreamingResponse(
                 output,
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 headers={
                     "Content-Disposition": f"attachment; filename={filename}",
                     "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                },
-                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                }
             )
             
         except Exception as e:
             logger.error(f"Ошибка при формировании Excel: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Ошибка формирования Excel: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Ошибка формирования Excel: {str(e)}"
+            )
         finally:
             await conn.close()
             
     except Exception as e:
         logger.error(f"Критическая ошибка при экспорте в Excel: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 async def create_demands_sheet(wb: Workbook, conn, date_range: DateRange):
     """Создает лист с отгрузками"""
