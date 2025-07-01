@@ -402,6 +402,8 @@ async def insert_demands_batch(conn, batch_values):
         logger.error(f"Ошибка при вставке отгрузок: {str(e)}")
         return 0
 
+# main.py (исправленная часть)
+
 async def insert_positions_batch(conn, batch_values: List[Dict[str, Any]]) -> int:
     """Асинхронная массовая вставка позиций"""
     try:
@@ -458,24 +460,24 @@ async def insert_positions_batch(conn, batch_values: List[Dict[str, Any]]) -> in
         for pos in batch_values:
             try:
                 row = (
-                    pos['id'],
-                    pos['demand_id'],
-                    pos['demand_number'],
-                    pos['date'],
-                    pos['counterparty'],
-                    pos['store'],
-                    pos['project'],
-                    pos['sales_channel'],
-                    pos['product_name'],
-                    float(pos['quantity']),
-                    float(pos['price']),
-                    float(pos['amount']),
-                    float(pos['cost_price']),
-                    pos['article'],
-                    pos['code'],
+                    pos.get('id', ''),
+                    pos.get('demand_id', ''),
+                    pos.get('demand_number', ''),
+                    pos.get('date'),
+                    pos.get('counterparty', ''),
+                    pos.get('store', ''),
+                    pos.get('project', 'Без проекта'),
+                    pos.get('sales_channel', 'Без канала'),
+                    pos.get('product_name', ''),
+                    float(pos.get('quantity', 0)),
+                    float(pos.get('price', 0)),
+                    float(pos.get('amount', 0)),
+                    float(pos.get('cost_price', 0)),
+                    pos.get('article', ''),
+                    pos.get('code', ''),
                     float(pos.get('overhead', 0)),
                     float(pos.get('profit', 0)),
-                    pos['promo_period'],
+                    pos.get('promo_period', ''),
                     float(pos.get('delivery_amount', 0)),
                     float(pos.get('admin_data', 0)),
                     float(pos.get('gdeslon', 0)),
@@ -507,6 +509,46 @@ async def insert_positions_batch(conn, batch_values: List[Dict[str, Any]]) -> in
     except Exception as e:
         logger.error(f"Ошибка при вставке позиций: {str(e)}")
         return 0
+
+async def process_single_demand(demand: Dict) -> bool:
+    """Обрабатывает одну отгрузку и сохраняет в БД"""
+    conn = None
+    try:
+        demand_id = demand.get('id')
+        if not demand_id:
+            logger.error("Отсутствует ID отгрузки")
+            return False
+            
+        # Подготавливаем данные
+        demand_data = prepare_demand_data(demand)
+        positions_data = prepare_positions_data(demand)
+        
+        if not demand_data:
+            logger.error("Не удалось подготовить данные отгрузки")
+            return False
+            
+        # Сохраняем в БД
+        conn = await get_db_connection()
+        async with conn.transaction():
+            # 1. Удаляем старые данные
+            await conn.execute("DELETE FROM demand_positions WHERE demand_id = $1", demand_id)
+            await conn.execute("DELETE FROM demands WHERE id = $1", demand_id)
+            
+            # 2. Вставляем новые данные
+            await insert_demands_batch(conn, [demand_data])
+            
+            if positions_data:
+                await insert_positions_batch(conn, positions_data)
+                
+            logger.info(f"Данные отгрузки {demand_id} успешно обновлены")
+            return True
+            
+    except Exception as e:
+        logger.error(f"Ошибка сохранения отгрузки {demand_id}: {str(e)}")
+        return False
+    finally:
+        if conn:
+            await conn.close()
 
 def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
     """Подготовка данных отгрузки для вставки в БД"""
@@ -799,14 +841,12 @@ async def export_excel(date_range: DateRange):
             
             filename = f"report_{date_range.start_date[:10]}_{date_range.end_date[:10]}.xlsx"
             
-            headers = {
-                "Content-Disposition": f"attachment; filename={filename}",
-                "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            }
-            
             return StreamingResponse(
                 output,
-                headers=headers,
+                headers={
+                    "Content-Disposition": f"attachment; filename={filename}",
+                    "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                },
                 media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
             
