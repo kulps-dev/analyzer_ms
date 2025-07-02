@@ -4,7 +4,6 @@ services:
   backend:
     build:
       context: ./backend
-      dockerfile: Dockerfile
     container_name: analyzer-backend
     volumes:
       - ~/.postgresql:/root/.postgresql:ro
@@ -16,19 +15,16 @@ services:
     restart: unless-stopped
     networks:
       - analyzer-net
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
   frontend:
     build:
-      context: ./frontend
+      context: .
       dockerfile: Dockerfile
     container_name: analyzer-frontend
     ports:
       - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
     depends_on:
       backend:
         condition: service_healthy
@@ -39,4 +35,3 @@ services:
 networks:
   analyzer-net:
     driver: bridge
-    name: analyzer-network

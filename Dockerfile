@@ -1,14 +1,16 @@
-# Используем легкий образ nginx на базе Alpine Linux
-FROM nginx:alpine
+FROM nginx:1.25-alpine
 
-# Копируем файлы фронтенда в рабочую директорию nginx
-COPY ./frontend /usr/share/nginx/html
+# Копируем статические файлы фронтенда
+COPY frontend/ /usr/share/nginx/html/
 
-# Копируем конфигурацию nginx
+# Копируем конфиг nginx
 COPY nginx.conf /etc/nginx/nginx.conf
 
-# Открываем 80 порт для веб-доступа
+# Создаем папку для логов
+RUN mkdir -p /var/log/nginx
+
+# Открываем порт
 EXPOSE 80
 
-# Запускаем nginx в foreground режиме
+# Запускаем nginx
 CMD ["nginx", "-g", "daemon off;"]
