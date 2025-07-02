@@ -862,102 +862,131 @@ async def get_task_status(task_id: str):
 
 @app.post("/api/export/excel")
 async def export_excel(date_range: DateRange):
-    """Экспорт данных в Excel с детальным логированием"""
+    """Экспорт данных в Excel с максимально детальным логированием"""
     conn = None
+    output = None
     try:
-        logger.info(f"Начало экспорта данных. Получен диапазон: start_date={date_range.start_date}, end_date={date_range.end_date}")
-        
-        # Проверка формата дат
-        logger.debug(f"Тип start_date: {type(date_range.start_date)}, значение: {date_range.start_date}")
-        logger.debug(f"Тип end_date: {type(date_range.end_date)}, значение: {date_range.end_date}")
+        # Логирование входящих данных
+        logger.info(f"Начало обработки запроса на экспорт. Диапазон: {date_range.start_date} - {date_range.end_date}")
+        logger.debug(f"Полный объект date_range: {date_range.dict()}")
+
+        # Проверка валидности дат
+        try:
+            datetime.strptime(date_range.start_date, "%Y-%m-%d %H:%M:%S")
+            datetime.strptime(date_range.end_date, "%Y-%m-%d %H:%M:%S")
+        except ValueError as e:
+            logger.error(f"Неверный формат даты: {str(e)}")
+            raise HTTPException(status_code=400, detail="Неверный формат даты. Ожидается 'YYYY-MM-DD HH:MM:SS'")
 
         # Подключение к БД
-        logger.info("Установка соединения с БД...")
+        logger.info("Установка соединения с базой данных...")
         conn = await get_db_connection()
-        logger.info("Соединение с БД установлено успешно")
+        logger.info("Соединение с БД успешно установлено")
 
-        # Создание книги Excel
+        # Создание Excel книги
         logger.info("Создание новой книги Excel...")
         wb = Workbook()
         
         # Удаление дефолтного листа
         if wb.worksheets:
             logger.debug("Удаление дефолтного листа...")
-            wb.remove(wb.worksheets[0])
+            default_sheet = wb.worksheets[0]
+            wb.remove(default_sheet)
+            logger.debug("Дефолтный лист удален")
 
-        # Создание листов
+        # Создание листов с отгрузками
         logger.info("Создание листа 'Отгрузки'...")
         await create_demands_sheet_safe(wb, conn, date_range)
-        
+        logger.info("Лист 'Отгрузки' успешно создан")
+
+        # Создание листа с позициями
         logger.info("Создание листа 'Отчет по товарам'...")
         await create_positions_sheet_safe(wb, conn, date_range)
-        
+        logger.info("Лист 'Отчет по товарам' успешно создан")
+
+        # Создание сводного отчета
         logger.info("Создание листа 'Сводный отчет по товарам'...")
         await create_products_summary_sheet_safe(wb, conn, date_range)
+        logger.info("Лист 'Сводный отчет по товарам' успешно создан")
 
         # Сохранение в буфер
-        logger.info("Сохранение книги в буфер...")
+        logger.info("Сохранение книги в буфер памяти...")
         output = BytesIO()
         wb.save(output)
         output.seek(0)
-        logger.debug(f"Размер буфера: {len(output.getvalue())} байт")
+        content = output.getvalue()
+        
+        # Проверка содержимого
+        logger.debug(f"Размер содержимого Excel: {len(content)} байт")
+        if len(content) < 100:
+            logger.warning("Слишком маленький размер файла Excel - возможно, ошибка при создании")
 
         # Формирование имени файла
         try:
-            logger.info("Формирование имени файла...")
+            # Пробуем создать имя с датами
+            start_str = date_range.start_date[:10].replace("-", "")
+            end_str = date_range.end_date[:10].replace("-", "")
+            filename = f"report_{start_str}_{end_str}.xlsx"
             
-            # Пробуем разные форматы дат
-            date_formats = [
-                "%Y-%m-%d %H:%M:%S", 
-                "%Y-%m-%d", 
-                "%Y-%m-%d %H:%M:%S.%f"
-            ]
-            
-            start_dt, end_dt = None, None
-            
-            for fmt in date_formats:
-                try:
-                    start_dt = datetime.strptime(date_range.start_date, fmt)
-                    end_dt = datetime.strptime(date_range.end_date, fmt)
-                    logger.debug(f"Успешный парсинг даты с форматом: {fmt}")
-                    break
-                except ValueError:
-                    continue
-            
-            if not start_dt or not end_dt:
-                logger.warning("Не удалось распарсить даты стандартными форматами, используем fallback")
-                start_date_str = date_range.start_date[:10].replace('-', '')[:8]
-                end_date_str = date_range.end_date[:10].replace('-', '')[:8]
-            else:
-                start_date_str = start_dt.strftime("%Y%m%d")
-                end_date_str = end_dt.strftime("%Y%m%d")
-            
-            filename = f"report_{start_date_str}_{end_date_str}.xlsx"
+            # Проверка на валидность имени файла
+            if not re.match(r'^[\w\-\.]+$', filename):
+                raise ValueError("Некорректное имя файла")
+                
             logger.debug(f"Сформировано имя файла: {filename}")
-            
         except Exception as e:
-            logger.error(f"Ошибка формирования имени файла: {str(e)}")
-            filename = f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-            logger.debug(f"Используем имя файла по умолчанию: {filename}")
+            logger.warning(f"Ошибка формирования имени файла: {str(e)}. Используем стандартное имя.")
+            filename = "report.xlsx"
 
-        # Возврат ответа
-        logger.info("Подготовка ответа...")
-        response = StreamingResponse(
-            output,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        # Формирование заголовков
+        headers = {
+            "Content-Disposition": f"attachment; filename=\"{filename}\"",
+            "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "Content-Length": str(len(content)),
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+        
+        logger.debug("Формируемые заголовки ответа:")
+        for k, v in headers.items():
+            logger.debug(f"  {k}: {v}")
+
+        # Создание ответа
+        logger.info("Формирование HTTP ответа...")
+        response = Response(
+            content=content,
+            media_type=headers["Content-Type"],
+            headers=headers
         )
-        
-        logger.info("Экспорт завершен успешно")
+
+        logger.info("Экспорт завершен успешно. Отправка ответа клиенту.")
         return response
-        
+
+    except HTTPException:
+        raise  # Пробрасываем уже обработанные HTTP ошибки
     except Exception as e:
         logger.error(f"Критическая ошибка при экспорте: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Ошибка при создании Excel файла: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Произошла внутренняя ошибка при формировании отчета"
+        )
     finally:
+        # Закрытие соединения с БД
         if conn:
             logger.info("Закрытие соединения с БД...")
-            await conn.close()
+            try:
+                await conn.close()
+                logger.debug("Соединение с БД успешно закрыто")
+            except Exception as e:
+                logger.error(f"Ошибка при закрытии соединения с БД: {str(e)}")
+
+        # Очистка буфера
+        if output:
+            try:
+                output.close()
+                logger.debug("Буфер памяти успешно очищен")
+            except Exception as e:
+                logger.error(f"Ошибка при закрытии буфера: {str(e)}")
 
 async def create_demands_sheet(wb: Workbook, conn, date_range: DateRange):
     """Создает лист с отгрузками"""
