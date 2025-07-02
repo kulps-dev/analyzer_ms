@@ -210,4 +210,68 @@ document.addEventListener('DOMContentLoaded', function() {
                     
                     showStatus(`${status.message} (${status.progress})`, 
                               status.status === 'completed' ? 'success' : 
-                              status.status === 'failed' ? 
+                              status.status === 'failed' ? 'error' : 'info');
+                    
+                    if (status.status !== 'completed' && status.status !== 'failed') {
+                        setTimeout(() => checkStatus(taskId), 2000);
+                    }
+                } catch (e) {
+                    console.error('Status Check Error:', e);
+                }
+            };
+            
+            checkStatus(result.task_id);
+            
+        } catch (error) {
+            console.error('DB Save Error:', error);
+            showStatus('Ошибка при сохранении данных', 'error');
+            showAlert(error.message || 'Ошибка при сохранении в БД', 'error');
+        } finally {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }
+    });
+
+    // 7. Обработчик для кнопки Google Sheets
+    document.getElementById('export-gsheet-btn')?.addEventListener('click', async function() {
+        const startDate = document.getElementById('start-date')?.value;
+        const endDate = document.getElementById('end-date')?.value;
+        
+        if (!startDate || !endDate) {
+            showAlert('Пожалуйста, укажите период анализа', 'error');
+            return;
+        }
+
+        const btn = this;
+        const originalText = btn.innerHTML;
+        
+        try {
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Создание...';
+            btn.disabled = true;
+            showStatus('Создание Google таблицы...', 'loading');
+
+            const response = await makeApiRequest('/api/export/gsheet', 'POST', {
+                start_date: `${startDate} 00:00:00`,
+                end_date: `${endDate} 23:59:59`
+            });
+
+            const result = await response.json();
+            
+            if (result.url) {
+                window.open(result.url, '_blank');
+                showStatus('Таблица создана', 'success');
+                showAlert('Google таблица успешно создана', 'success');
+            } else {
+                throw new Error('Не получена ссылка на таблицу');
+            }
+            
+        } catch (error) {
+            console.error('Google Sheets Error:', error);
+            showStatus('Ошибка при создании таблицы', 'error');
+            showAlert(error.message || 'Ошибка при создании Google таблицы', 'error');
+        } finally {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }
+    });
+});
