@@ -65,12 +65,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // 4. Функция скачивания файла (улучшенная)
     const downloadFile = async (response, defaultFilename = 'report.xlsx') => {
         try {
-            // Проверяем тип содержимого
-            const contentType = response.headers.get('content-type');
-            if (!contentType.includes('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')) {
-                throw new Error(`Неверный тип файла: ${contentType}`);
+            // Проверяем, что ответ содержит данные
+            if (!response.ok || !response.body) {
+                throw new Error('Неверный ответ сервера');
             }
-
+    
             // Получаем имя файла из заголовков
             const contentDisposition = response.headers.get('content-disposition');
             let filename = defaultFilename;
@@ -79,22 +78,32 @@ document.addEventListener('DOMContentLoaded', function() {
                 const match = contentDisposition.match(/filename="?([^"]+)"?/);
                 if (match) filename = match[1];
             }
-
-            // Создаем Blob и ссылку для скачивания
+    
+            // Создаем Blob
             const blob = await response.blob();
-            const url = URL.createObjectURL(blob);
+            
+            // Проверяем, что Blob создан
+            if (!blob || blob.size === 0) {
+                throw new Error('Пустой файл или ошибка создания Blob');
+            }
+    
+            // Создаем ссылку для скачивания
+            const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
+            a.style.display = 'none';
             a.href = url;
             a.download = filename;
+            
+            // Добавляем ссылку в DOM и эмулируем клик
             document.body.appendChild(a);
             a.click();
-            
+    
             // Очистка
+            window.URL.revokeObjectURL(url);
             setTimeout(() => {
                 document.body.removeChild(a);
-                URL.revokeObjectURL(url);
             }, 100);
-
+    
             return true;
         } catch (error) {
             console.error('Download Error:', error);
