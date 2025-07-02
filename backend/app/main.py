@@ -34,6 +34,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 from openpyxl.utils import get_column_letter
 import logging
+import re
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO)
