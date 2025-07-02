@@ -402,8 +402,35 @@ async def insert_demands_batch(conn, batch_values):
         logger.error(f"Ошибка при вставке отгрузок: {str(e)}")
         return 0
 
+async def create_demands_sheet_safe(wb: Workbook, conn, date_range: DateRange):
+    """Безопасная версия создания листа с отгрузками с обработкой ошибок"""
+    try:
+        await create_demands_sheet(wb, conn, date_range)
+    except Exception as e:
+        logger.error(f"Ошибка создания листа отгрузок: {str(e)}")
+        ws = wb.create_sheet("Отгрузки")
+        ws.append(["Ошибка при создании листа", str(e)])
+
+async def create_positions_sheet_safe(wb: Workbook, conn, date_range: DateRange):
+    """Безопасная версия создания листа с позициями с обработкой ошибок"""
+    try:
+        await create_positions_sheet(wb, conn, date_range)
+    except Exception as e:
+        logger.error(f"Ошибка создания листа товаров: {str(e)}")
+        ws = wb.create_sheet("Отчет по товарам")
+        ws.append(["Ошибка при создании листа", str(e)])
+
+async def create_products_summary_sheet_safe(wb: Workbook, conn, date_range: DateRange):
+    """Безопасная версия создания сводного листа с обработкой ошибок"""
+    try:
+        await create_products_summary_sheet(wb, conn, date_range)
+    except Exception as e:
+        logger.error(f"Ошибка создания сводного листа: {str(e)}")
+        ws = wb.create_sheet("Сводный отчет по товарам")
+        ws.append(["Ошибка при создании листа", str(e)])
+
 async def insert_positions_batch(conn, batch_values: List[Dict[str, Any]]) -> int:
-    """Асинхронная массовая вставка позиций с правильным количеством параметров"""
+    """Исправленная массовая вставка позиций с правильным количеством параметров"""
     if not batch_values:
         return 0
         
@@ -417,7 +444,7 @@ async def insert_positions_batch(conn, batch_values: List[Dict[str, Any]]) -> in
                 programmatic, avito, multiorders, estimated_discount
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-                $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34
+                $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35
             )
             ON CONFLICT (id) DO UPDATE SET
                 demand_id = EXCLUDED.demand_id,
@@ -474,7 +501,7 @@ async def insert_positions_batch(conn, batch_values: List[Dict[str, Any]]) -> in
                 elif not isinstance(date_value, datetime):
                     date_value = None
                 
-                # Создаем кортеж с точно 34 значениями (УБИРАЕМ estimated_discount!)
+                # Создаем кортеж с 35 значениями
                 row_data = (
                     str(pos.get('id', ''))[:255],                           # 1
                     str(pos.get('demand_id', ''))[:255],                    # 2
@@ -509,14 +536,10 @@ async def insert_positions_batch(conn, batch_values: List[Dict[str, Any]]) -> in
                     float(pos.get('seo', 0)),                              # 31
                     float(pos.get('programmatic', 0)),                     # 32
                     float(pos.get('avito', 0)),                            # 33
-                    float(pos.get('multiorders', 0))                       # 34 (БЕЗ estimated_discount!)
+                    float(pos.get('multiorders', 0)),                      # 34
+                    float(pos.get('estimated_discount', 0))                # 35
                 )
                 
-                # Проверяем, что у нас ровно 34 параметра
-                if len(row_data) != 34:
-                    logger.error(f"Неверное количество параметров: {len(row_data)}, ожидается 34")
-                    continue
-                    
                 rows_to_insert.append(row_data)
                 
             except Exception as e:
@@ -839,7 +862,7 @@ async def get_task_status(task_id: str):
 
 @app.post("/api/export/excel")
 async def export_excel(date_range: DateRange):
-    """Экспорт данных в Excel файл с обработкой ошибок"""
+    """Исправленный экспорт данных в Excel файл с обработкой ошибок"""
     conn = None
     try:
         logger.info(f"Начало экспорта данных с {date_range.start_date} по {date_range.end_date}")
@@ -855,42 +878,14 @@ async def export_excel(date_range: DateRange):
             wb.remove(wb.worksheets[0])
         
         # Создаем листы по очереди с обработкой ошибок
-        try:
-            await create_demands_sheet_safe(wb, conn, date_range)
-        except Exception as e:
-            logger.error(f"Ошибка создания листа отгрузок: {str(e)}")
-            # Создаем пустой лист с ошибкой
-            ws = wb.create_sheet("Отгрузки")
-            ws.append(["Ошибка при создании листа", str(e)])
-        
-        try:
-            await create_positions_sheet_safe(wb, conn, date_range)
-        except Exception as e:
-            logger.error(f"Ошибка создания листа товаров: {str(e)}")
-            ws = wb.create_sheet("Отчет по товарам")
-            ws.append(["Ошибка при создании листа", str(e)])
-        
-        try:
-            await create_products_summary_sheet_safe(wb, conn, date_range)
-        except Exception as e:
-            logger.error(f"Ошибка создания сводного листа: {str(e)}")
-            ws = wb.create_sheet("Сводный отчет по товарам")
-            ws.append(["Ошибка при создании листа", str(e)])
+        await create_demands_sheet_safe(wb, conn, date_range)
+        await create_positions_sheet_safe(wb, conn, date_range)
+        await create_products_summary_sheet_safe(wb, conn, date_range)
         
         # Создаем временный файл
-        import tempfile
-        import os
-        
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
-            wb.save(tmp_file.name)
-            tmp_file_path = tmp_file.name
-        
-        # Читаем файл
-        with open(tmp_file_path, 'rb') as f:
-            file_data = f.read()
-        
-        # Удаляем временный файл
-        os.unlink(tmp_file_path)
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
         
         # Формируем имя файла
         start_date_str = date_range.start_date[:10].replace('-', '_')
@@ -898,12 +893,12 @@ async def export_excel(date_range: DateRange):
         filename = f"report_{start_date_str}_{end_date_str}.xlsx"
         
         # Возвращаем файл
-        return Response(
-            content=file_data,
+        return StreamingResponse(
+            output,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={
-                "Content-Disposition": f"attachment; filename=\"{filename}\"",
-                "Content-Length": str(len(file_data))
+                "Content-Disposition": f"attachment; filename={filename}",
+                "Content-Length": str(len(output.getvalue()))
             }
         )
         
