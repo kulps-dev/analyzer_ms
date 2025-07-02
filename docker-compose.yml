@@ -4,7 +4,6 @@ services:
   backend:
     build:
       context: ./backend
-    container_name: analyzer-backend
     volumes:
       - ~/.postgresql:/root/.postgresql:ro
       - ./backend/app/credentials:/app/credentials:ro
@@ -14,24 +13,20 @@ services:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
     networks:
-      - analyzer-net
+      - analyzer-network
 
   frontend:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: analyzer-frontend
     ports:
       - "80:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
     restart: unless-stopped
     networks:
-      - analyzer-net
+      - analyzer-network
 
 networks:
-  analyzer-net:
+  analyzer-network:
     driver: bridge
