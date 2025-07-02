@@ -862,56 +862,101 @@ async def get_task_status(task_id: str):
 
 @app.post("/api/export/excel")
 async def export_excel(date_range: DateRange):
-    """Исправленный экспорт данных в Excel файл с обработкой ошибок"""
+    """Экспорт данных в Excel с детальным логированием"""
     conn = None
     try:
-        logger.info(f"Начало экспорта данных с {date_range.start_date} по {date_range.end_date}")
+        logger.info(f"Начало экспорта данных. Получен диапазон: start_date={date_range.start_date}, end_date={date_range.end_date}")
         
-        # Подключаемся к БД с await
+        # Проверка формата дат
+        logger.debug(f"Тип start_date: {type(date_range.start_date)}, значение: {date_range.start_date}")
+        logger.debug(f"Тип end_date: {type(date_range.end_date)}, значение: {date_range.end_date}")
+
+        # Подключение к БД
+        logger.info("Установка соединения с БД...")
         conn = await get_db_connection()
-        
-        # Создаем новую книгу Excel
+        logger.info("Соединение с БД установлено успешно")
+
+        # Создание книги Excel
+        logger.info("Создание новой книги Excel...")
         wb = Workbook()
         
-        # Удаляем дефолтный лист
+        # Удаление дефолтного листа
         if wb.worksheets:
+            logger.debug("Удаление дефолтного листа...")
             wb.remove(wb.worksheets[0])
-        
-        # Создаем листы по очереди с обработкой ошибок
+
+        # Создание листов
+        logger.info("Создание листа 'Отгрузки'...")
         await create_demands_sheet_safe(wb, conn, date_range)
-        await create_positions_sheet_safe(wb, conn, date_range)
-        await create_products_summary_sheet_safe(wb, conn, date_range)
         
-        # Создаем временный файл
+        logger.info("Создание листа 'Отчет по товарам'...")
+        await create_positions_sheet_safe(wb, conn, date_range)
+        
+        logger.info("Создание листа 'Сводный отчет по товарам'...")
+        await create_products_summary_sheet_safe(wb, conn, date_range)
+
+        # Сохранение в буфер
+        logger.info("Сохранение книги в буфер...")
         output = BytesIO()
         wb.save(output)
         output.seek(0)
-        
-        # Формируем имя файла (исправленная часть)
+        logger.debug(f"Размер буфера: {len(output.getvalue())} байт")
+
+        # Формирование имени файла
         try:
-            # Пробуем извлечь дату из строки (может быть разный формат)
-            start_date = datetime.strptime(date_range.start_date[:10], "%Y-%m-%d")
-            end_date = datetime.strptime(date_range.end_date[:10], "%Y-%m-%d")
-            start_date_str = start_date.strftime("%Y%m%d")
-            end_date_str = end_date.strftime("%Y%m%d")
-        except ValueError:
-            # Если не удалось распарсить, используем простой формат
-            start_date_str = date_range.start_date[:10].replace('-', '')
-            end_date_str = date_range.end_date[:10].replace('-', '')
-        
-        filename = f"report_{start_date_str}_{end_date_str}.xlsx"
-        
-        return StreamingResponse(
+            logger.info("Формирование имени файла...")
+            
+            # Пробуем разные форматы дат
+            date_formats = [
+                "%Y-%m-%d %H:%M:%S", 
+                "%Y-%m-%d", 
+                "%Y-%m-%d %H:%M:%S.%f"
+            ]
+            
+            start_dt, end_dt = None, None
+            
+            for fmt in date_formats:
+                try:
+                    start_dt = datetime.strptime(date_range.start_date, fmt)
+                    end_dt = datetime.strptime(date_range.end_date, fmt)
+                    logger.debug(f"Успешный парсинг даты с форматом: {fmt}")
+                    break
+                except ValueError:
+                    continue
+            
+            if not start_dt or not end_dt:
+                logger.warning("Не удалось распарсить даты стандартными форматами, используем fallback")
+                start_date_str = date_range.start_date[:10].replace('-', '')[:8]
+                end_date_str = date_range.end_date[:10].replace('-', '')[:8]
+            else:
+                start_date_str = start_dt.strftime("%Y%m%d")
+                end_date_str = end_dt.strftime("%Y%m%d")
+            
+            filename = f"report_{start_date_str}_{end_date_str}.xlsx"
+            logger.debug(f"Сформировано имя файла: {filename}")
+            
+        except Exception as e:
+            logger.error(f"Ошибка формирования имени файла: {str(e)}")
+            filename = f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            logger.debug(f"Используем имя файла по умолчанию: {filename}")
+
+        # Возврат ответа
+        logger.info("Подготовка ответа...")
+        response = StreamingResponse(
             output,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
         
+        logger.info("Экспорт завершен успешно")
+        return response
+        
     except Exception as e:
-        logger.error(f"Ошибка экспорта: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Критическая ошибка при экспорте: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Ошибка при создании Excel файла: {str(e)}")
     finally:
         if conn:
+            logger.info("Закрытие соединения с БД...")
             await conn.close()
 
 async def create_demands_sheet(wb: Workbook, conn, date_range: DateRange):
