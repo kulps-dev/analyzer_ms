@@ -112,40 +112,62 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // 5. Обработчик для кнопки Excel
-    document.getElementById('export-excel-btn')?.addEventListener('click', async function() {
-        const startDate = document.getElementById('start-date')?.value;
-        const endDate = document.getElementById('end-date')?.value;
+
+    document.getElementById('export-excel-btn').addEventListener('click', async function() {
+        const startDate = document.getElementById('start-date').value;
+        const endDate = document.getElementById('end-date').value;
         
         if (!startDate || !endDate) {
             showAlert('Пожалуйста, укажите период анализа', 'error');
             return;
         }
-
+    
         const btn = this;
         const originalText = btn.innerHTML;
         
         try {
-            // Показываем статус загрузки
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Формирование...';
             btn.disabled = true;
-            showStatus('Формирование Excel отчета...', 'loading');
-
-            // Отправляем запрос
-            const response = await makeApiRequest('/api/export/excel', 'POST', {
-                start_date: `${startDate} 00:00:00`,
-                end_date: `${endDate} 23:59:59`
+            showStatus('Формирование отчета...', 'loading');
+    
+            const response = await fetch('/api/export/excel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    start_date: `${startDate} 00:00:00`,
+                    end_date: `${endDate} 23:59:59`
+                })
             });
-
-            // Скачиваем файл
-            await downloadFile(response);
+    
+            // Проверяем тип ответа
+            const contentType = response.headers.get('content-type');
             
-            showStatus('Excel файл успешно сформирован', 'success');
-            showAlert('Отчет готов к скачиванию', 'success');
-            
+            if (contentType.includes('application/json')) {
+                // Если получили JSON (ошибка)
+                const error = await response.json();
+                throw new Error(error.detail || 'Ошибка сервера');
+            } else if (contentType.includes('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')) {
+                // Если получили Excel файл
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `report_${startDate}_${endDate}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                }, 100);
+                
+                showStatus('Отчет успешно сформирован', 'success');
+            } else {
+                throw new Error('Неизвестный формат ответа');
+            }
         } catch (error) {
-            console.error('Excel Export Error:', error);
-            showStatus('Ошибка при формировании отчета', 'error');
-            showAlert(error.message || 'Ошибка при создании Excel файла', 'error');
+            console.error('Ошибка:', error);
+            showStatus('Ошибка формирования отчета', 'error');
+            showAlert(error.message || 'Ошибка при создании отчета', 'error');
         } finally {
             btn.innerHTML = originalText;
             btn.disabled = false;
