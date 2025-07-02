@@ -887,9 +887,18 @@ async def export_excel(date_range: DateRange):
         wb.save(output)
         output.seek(0)
         
-        # Формируем имя файла
-        start_date_str = date_range.start_date[:10].replace('-', '')
-        end_date_str = date_range.end_date[:10].replace('-', '')
+        # Формируем имя файла (исправленная часть)
+        try:
+            # Пробуем извлечь дату из строки (может быть разный формат)
+            start_date = datetime.strptime(date_range.start_date[:10], "%Y-%m-%d")
+            end_date = datetime.strptime(date_range.end_date[:10], "%Y-%m-%d")
+            start_date_str = start_date.strftime("%Y%m%d")
+            end_date_str = end_date.strftime("%Y%m%d")
+        except ValueError:
+            # Если не удалось распарсить, используем простой формат
+            start_date_str = date_range.start_date[:10].replace('-', '')
+            end_date_str = date_range.end_date[:10].replace('-', '')
+        
         filename = f"report_{start_date_str}_{end_date_str}.xlsx"
         
         return StreamingResponse(
