@@ -867,7 +867,7 @@ async def export_excel(date_range: DateRange):
     try:
         logger.info(f"Начало экспорта данных с {date_range.start_date} по {date_range.end_date}")
         
-        # Подключаемся к БД
+        # Подключаемся к БД с await
         conn = await get_db_connection()
         
         # Создаем новую книгу Excel
@@ -888,26 +888,19 @@ async def export_excel(date_range: DateRange):
         output.seek(0)
         
         # Формируем имя файла
-        start_date_str = date_range.start_date[:10].replace('-', '_')
-        end_date_str = date_range.end_date[:10].replace('-', '_')
+        start_date_str = date_range.start_date[:10].replace('-', '')
+        end_date_str = date_range.end_date[:10].replace('-', '')
         filename = f"report_{start_date_str}_{end_date_str}.xlsx"
         
-        # Возвращаем файл
         return StreamingResponse(
             output,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={
-                "Content-Disposition": f"attachment; filename={filename}",
-                "Content-Length": str(len(output.getvalue()))
-            }
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
         
     except Exception as e:
-        logger.error(f"Критическая ошибка при экспорте в Excel: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Ошибка экспорта: {str(e)}"
-        )
+        logger.error(f"Ошибка экспорта: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn:
             await conn.close()
