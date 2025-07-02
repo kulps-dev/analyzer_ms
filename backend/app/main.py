@@ -44,9 +44,10 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Разрешает все домены (для разработки)
-    allow_methods=["*"],  # Разрешает все HTTP-методы
-    allow_headers=["*"],  # Разрешает все заголовки
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["Content-Disposition"]  # Важно для скачивания файлов
 )
 
 # Настройки базы данных
