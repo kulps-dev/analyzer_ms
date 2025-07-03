@@ -655,24 +655,24 @@ async def export_excel(date_range: DateRange):
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # Создаем Excel файл
         wb = Workbook()
-        
-        # Лист с отгрузками
         await create_demands_sheet(wb, cur, date_range)
-        
-        # Лист с товарами
         await create_positions_sheet(wb, cur, date_range)
         
         buffer = io.BytesIO()
         wb.save(buffer)
         buffer.seek(0)
         
-        # Возвращаем hex-строку и имя файла
-        return {
-            "file": buffer.getvalue().hex(),
-            "filename": f"Отчет_{date_range.start_date}_по_{date_range.end_date}.xlsx"
-        }
+        filename = f"Отчет_{date_range.start_date}_по_{date_range.end_date}.xlsx"
+        encoded_filename = quote(filename)
+        
+        return StreamingResponse(
+            buffer,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
+            }
+        )
         
     except Exception as e:
         logger.error(f"Error during Excel export: {str(e)}", exc_info=True)
