@@ -27,7 +27,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Функция для скачивания Excel
     function downloadExcel(hexData, filename) {
-        const bytes = new Uint8Array(hexData.match(/.{1,2}/g).map(byte => parseInt(byte, 16));
+        const bytes = new Uint8Array(hexData.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
         const blob = new Blob([bytes], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
