@@ -652,6 +652,16 @@ async def export_excel(date_range: DateRange):
     conn = None
     try:
         logger.info(f"Starting Excel export for {date_range.start_date} to {date_range.end_date}")
+        
+        # Проверка дат
+        logger.info(f"Raw dates - start: {date_range.start_date}, end: {date_range.end_date}")
+        
+        start_date = datetime.strptime(date_range.start_date[:10], "%Y-%m-%d").strftime("%Y%m%d")
+        end_date = datetime.strptime(date_range.end_date[:10], "%Y-%m-%d").strftime("%Y%m%d")
+        filename = f"report_{start_date}_{end_date}.xlsx"
+        
+        logger.info(f"Formed filename: {filename}")
+        
         conn = get_db_connection()
         cur = conn.cursor()
 
@@ -666,19 +676,19 @@ async def export_excel(date_range: DateRange):
         wb.save(buffer)
         buffer.seek(0)
         file_content = buffer.getvalue()
-        logger.info(f"Generated Excel file size: {len(file_content)} bytes")
+        
+        # Записываем файл для отладки
+        debug_path = f"/tmp/debug_{filename}"
+        with open(debug_path, "wb") as f:
+            f.write(file_content)
+        logger.info(f"Debug file written to {debug_path}, size: {len(file_content)} bytes")
 
-        # Формируем имя файла
-        start_date = datetime.strptime(date_range.start_date[:10], "%Y-%m-%d").strftime("%Y%m%d")
-        end_date = datetime.strptime(date_range.end_date[:10], "%Y-%m-%d").strftime("%Y%m%d")
-        filename = f"report_{start_date}_{end_date}.xlsx"
-
-        # Возвращаем файл
-        return Response(
-            content=file_content,
+        # Формируем ответ
+        return StreamingResponse(
+            io.BytesIO(file_content),
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={
-                "Content-Disposition": f"attachment; filename={filename}",
+                "Content-Disposition": f"attachment; filename={quote(filename)}",
                 "Content-Length": str(len(file_content))
             }
         )
