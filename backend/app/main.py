@@ -671,11 +671,19 @@ async def export_excel(date_range: DateRange):
         wb.save(buffer)
         buffer.seek(0)
         
-        # Возвращаем hex-строку и имя файла
-        return {
-            "file": buffer.getvalue().hex(),
-            "filename": f"Отчет_{date_range.start_date}_по_{date_range.end_date}.xlsx"
-        }
+        # Формируем имя файла без недопустимых символов
+        safe_start = date_range.start_date.replace(':', '_').replace(' ', '_')
+        safe_end = date_range.end_date.replace(':', '_').replace(' ', '_')
+        filename = f"Отчет_{safe_start}_по_{safe_end}.xlsx"
+        
+        # Возвращаем файл как StreamingResponse
+        return StreamingResponse(
+            buffer,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f"attachment; filename={quote(filename)}"
+            }
+        )
         
     except Exception as e:
         logger.error(f"Error during Excel export: {str(e)}", exc_info=True)
