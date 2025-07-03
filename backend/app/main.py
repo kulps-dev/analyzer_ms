@@ -664,21 +664,20 @@ async def export_excel(date_range: DateRange):
         # Сохраняем в буфер
         buffer = io.BytesIO()
         wb.save(buffer)
-        buffer.seek(0)  # Важно: переводим указатель в начало!
+        buffer.seek(0)
 
-        # Формируем имя файла (убираем недопустимые символы)
-        filename = (
-            f"Отчет_{date_range.start_date.replace(':', '-').replace(' ', '_')}_"
-            f"по_{date_range.end_date.replace(':', '-').replace(' ', '_')}.xlsx"
-        )
+        # Формируем имя файла (упрощенное, без специальных символов)
+        start_date_clean = date_range.start_date[:10].replace("-", "")
+        end_date_clean = date_range.end_date[:10].replace("-", "")
+        filename = f"report_{start_date_clean}_{end_date_clean}.xlsx"
 
-        # Возвращаем файл
+        # Возвращаем файл с простым заголовком
         return StreamingResponse(
             buffer,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={
-                "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
-                "Access-Control-Expose-Headers": "Content-Disposition",  # Для CORS
+                "Content-Disposition": f"attachment; filename={filename}",
+                "Access-Control-Expose-Headers": "Content-Disposition",
             },
         )
 

@@ -28,15 +28,24 @@ document.addEventListener('DOMContentLoaded', function() {
     // Функция для скачивания Excel
     // Новая функция для скачивания бинарного Excel
     async function downloadExcel(response, filename) {
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename || 'report.xlsx';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        try {
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename || 'report.xlsx';
+            document.body.appendChild(a);
+            a.click();
+            
+            // Даем время для скачивания перед удалением
+            setTimeout(() => {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }, 100);
+        } catch (error) {
+            console.error('Ошибка при скачивании файла:', error);
+            throw error;
+        }
     }
 
     // Обработчик кнопки "Экспорт в Excel"
