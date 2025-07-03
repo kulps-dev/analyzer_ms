@@ -653,52 +653,44 @@ async def export_excel(date_range: DateRange):
     try:
         logger.info(f"Starting Excel export for {date_range.start_date} to {date_range.end_date}")
         
-        # Проверка дат
-        logger.info(f"Raw dates - start: {date_range.start_date}, end: {date_range.end_date}")
-        
-        start_date = datetime.strptime(date_range.start_date[:10], "%Y-%m-%d").strftime("%Y%m%d")
-        end_date = datetime.strptime(date_range.end_date[:10], "%Y-%m-%d").strftime("%Y%m%d")
-        filename = f"report_{start_date}_{end_date}.xlsx"
-        
-        logger.info(f"Formed filename: {filename}")
-        
+        # Create workbook in memory
+        wb = Workbook()
         conn = get_db_connection()
         cur = conn.cursor()
-
-        # Создаем Excel
-        wb = Workbook()
+        
+        # Create sheets
         await create_demands_sheet(wb, cur, date_range)
         await create_positions_sheet(wb, cur, date_range)
         await create_summary_sheet(wb, cur, date_range)
-
-        # Сохраняем в буфер
+        
+        # Save to BytesIO with optimized writer
         buffer = io.BytesIO()
         wb.save(buffer)
         buffer.seek(0)
         file_content = buffer.getvalue()
         
-        # Записываем файл для отладки
-        debug_path = f"/tmp/debug_{filename}"
-        with open(debug_path, "wb") as f:
-            f.write(file_content)
-        logger.info(f"Debug file written to {debug_path}, size: {len(file_content)} bytes")
-
-        # Формируем ответ
-        return StreamingResponse(
-            io.BytesIO(file_content),
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={
-                "Content-Disposition": f"attachment; filename={quote(filename)}",
-                "Content-Length": str(len(file_content))
-            }
-        )
-
+        # Generate filename
+        start_date_str = date_range.start_date[:10].replace("-", "")
+        end_date_str = date_range.end_date[:10].replace("-", "")
+        filename = f"report_{start_date_str}_{end_date_str}.xlsx"
+        
+        # Create response with proper headers
+        headers = {
+            "Content-Disposition": f"attachment; filename={filename}",
+            "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        }
+        
+        return Response(content=file_content, headers=headers)
+        
     except Exception as e:
         logger.error(f"Excel export error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Ошибка при формировании Excel: {str(e)}")
     finally:
         if conn:
             conn.close()
+        # Ensure workbook is properly closed
+        if 'wb' in locals():
+            wb.close()
 
 async def create_demands_sheet(wb, cur, date_range):
     """Создает лист с отгрузками"""
