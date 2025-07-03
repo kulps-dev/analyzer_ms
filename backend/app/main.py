@@ -1147,11 +1147,9 @@ async def export_to_gsheet(date_range: DateRange):
             "backgroundColor": {"red": 1, "green": 0.8, "blue": 0.8}
         }
 
-        # Вспомогательная функция для преобразования данных
-        def prepare_value(value):
-            if isinstance(value, datetime):
-                return value.isoformat()
-            elif isinstance(value, Decimal):
+        # Вспомогательная функция для преобразования Decimal
+        def decimal_to_float(value):
+            if isinstance(value, Decimal):
                 return float(value)
             return value
 
@@ -1161,7 +1159,7 @@ async def export_to_gsheet(date_range: DateRange):
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # Получаем данные с преобразованием типов
+        # Получаем данные с преобразованием Decimal
         cur.execute("""
             SELECT 
                 d.number, d.date, d.counterparty, d.store, d.project, d.sales_channel,
@@ -1179,10 +1177,10 @@ async def export_to_gsheet(date_range: DateRange):
             ORDER BY d.number, d.date DESC
         """, (date_range.start_date, date_range.end_date))
         
-        # Преобразуем данные
+        # Преобразуем Decimal в float
         positions = []
         for row in cur.fetchall():
-            positions.append([prepare_value(value) for value in row])
+            positions.append([decimal_to_float(value) for value in row])
         
         # Заголовки
         pos_headers = [
@@ -1216,7 +1214,7 @@ async def export_to_gsheet(date_range: DateRange):
                         WHERE number = %s AND date BETWEEN %s AND %s
                         LIMIT 1
                     """, (demand_number, date_range.start_date, date_range.end_date))
-                    total_cost = prepare_value(cur.fetchone()[0]) if cur.rowcount > 0 else 0
+                    total_cost = decimal_to_float(cur.fetchone()[0]) if cur.rowcount > 0 else 0
                     
                     # Строка с итогами по отгрузке
                     summary_row = [
@@ -1227,7 +1225,7 @@ async def export_to_gsheet(date_range: DateRange):
                         row[25], row[26], row[27], row[28], row[29], row[30],
                         row[31]
                     ]
-                    rows_to_add.append([prepare_value(value) for value in summary_row])
+                    rows_to_add.append([decimal_to_float(value) for value in summary_row])
                     total_rows += 1
                 
                 # Строка с товаром
@@ -1236,7 +1234,7 @@ async def export_to_gsheet(date_range: DateRange):
                     row[6], row[7], row[8], row[9], row[10], row[11], row[12],
                     "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""
                 ]
-                rows_to_add.append([prepare_value(value) for value in product_row])
+                rows_to_add.append([decimal_to_float(value) for value in product_row])
                 total_rows += 1
             
             # Вставляем данные пакетами
@@ -1489,7 +1487,7 @@ async def export_to_gsheet(date_range: DateRange):
         # ===== 2. ЛИСТ С ОТГРУЗКАМИ =====
         worksheet_demands = sh.add_worksheet(title="Отчет по отгрузкам", rows=1000, cols=28)
         
-        # Получаем данные с преобразованием типов
+        # Получаем данные с преобразованием Decimal
         cur.execute("""
             SELECT 
                 number, date, counterparty, store, project, sales_channel,
@@ -1505,10 +1503,10 @@ async def export_to_gsheet(date_range: DateRange):
             ORDER BY date DESC
         """, (date_range.start_date, date_range.end_date))
         
-        # Преобразуем данные
+        # Преобразуем Decimal в float
         demands = []
         for row in cur.fetchall():
-            demands.append([prepare_value(value) for value in row])
+            demands.append([decimal_to_float(value) for value in row])
         
         conn.close()
         
