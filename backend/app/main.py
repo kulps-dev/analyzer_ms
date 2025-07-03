@@ -1209,7 +1209,6 @@ class DecimalEncoder(json.JSONEncoder):
             return float(obj)
         return super().default(obj)
 
-@app.post("/api/export/gsheet")
 
 # Стили для Google Sheets
 HEADER_STYLE = {
@@ -1282,6 +1281,7 @@ def prepare_value(value):
         return ""
     return value
 
+@app.post("/api/export/gsheet")
 async def export_to_gsheet(date_range: DateRange):
     try:
         logger.info("Создание Google Таблицы с оформлением как в Excel...")
