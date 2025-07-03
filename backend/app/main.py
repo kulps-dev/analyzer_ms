@@ -682,15 +682,26 @@ async def export_excel(date_range: DateRange):
         wb.save(buffer)
         buffer.seek(0)
         
+        # Формируем имя файла с русскими символами
+        filename = f"Отчет_по_отгрузкам_{date_range.start_date}_по_{date_range.end_date}.xlsx"
+        
+        # Кодируем имя файла для Content-Disposition (RFC 5987)
+        from urllib.parse import quote
+        encoded_filename = quote(filename, encoding='utf-8')
+        content_disposition = f"attachment; filename*=UTF-8''{encoded_filename}"
+        
         # Возвращаем файл как бинарный поток
         from fastapi.responses import StreamingResponse
-        filename = f"Отчет_по_отгрузкам_{date_range.start_date}_по_{date_range.end_date}.xlsx"
         return StreamingResponse(
             buffer,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
+            headers={
+                "Content-Disposition": content_disposition,
+                "Access-Control-Expose-Headers": "Content-Disposition"
+            }
         )
     except Exception as e:
+        logger.error(f"Ошибка при экспорте в Excel: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn:
