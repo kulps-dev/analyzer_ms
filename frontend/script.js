@@ -28,41 +28,15 @@ document.addEventListener('DOMContentLoaded', function() {
     // Функция для скачивания Excel
     // Новая функция для скачивания бинарного Excel
     async function downloadExcel(response, filename) {
-        try {
-            // Проверяем, что ответ успешный
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-    
-            // Получаем размер контента из заголовков
-            const contentLength = response.headers.get('Content-Length');
-            console.log(`Downloading Excel file, size: ${contentLength} bytes`);
-    
-            const blob = await response.blob();
-            console.log(`Blob size: ${blob.size} bytes, type: ${blob.type}`);
-    
-            if (blob.size === 0) {
-                throw new Error('Received empty file');
-            }
-    
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename || 'report.xlsx';
-            document.body.appendChild(a);
-            a.click();
-    
-            // Очистка
-            setTimeout(() => {
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-            }, 100);
-    
-        } catch (error) {
-            console.error('Error downloading Excel file:', error);
-            showAlert('Ошибка при скачивании файла', 'error');
-            throw error;
-        }
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename || 'report.xlsx';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     }
 
     // Обработчик кнопки "Экспорт в Excel"
