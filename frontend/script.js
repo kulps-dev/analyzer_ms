@@ -27,33 +27,46 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Функция для скачивания Excel
     // Новая функция для скачивания бинарного Excel
+    // Функция для скачивания Excel
     async function downloadExcel(response, filename) {
         try {
             if (!response.ok) {
                 const error = await response.json().catch(() => response.text());
                 throw new Error(error.message || error || `HTTP error! status: ${response.status}`);
             }
-    
+
+            // Получаем blob напрямую
             const blob = await response.blob();
             
-            // Verify blob is valid Excel file
+            // Проверяем, что это Excel файл
             if (blob.size === 0 || !blob.type.includes('spreadsheet')) {
-                throw new Error('Invalid file received from server');
+                throw new Error('Получен некорректный файл');
             }
-    
-            const url = URL.createObjectURL(blob);
+
+            // Создаем URL для скачивания
+            const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
+            
+            // Получаем имя файла из заголовка или используем дефолтное
+            const contentDisposition = response.headers.get('Content-Disposition');
+            if (contentDisposition) {
+                const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+                if (filenameMatch && filenameMatch[1]) {
+                    filename = filenameMatch[1];
+                }
+            }
+            
             a.download = filename || 'report.xlsx';
             document.body.appendChild(a);
             a.click();
             
-            // Cleanup
+            // Очистка
             setTimeout(() => {
                 document.body.removeChild(a);
-                URL.revokeObjectURL(url);
+                window.URL.revokeObjectURL(url);
             }, 100);
-    
+
         } catch (error) {
             console.error('Download error:', error);
             showAlert(`Ошибка при скачивании файла: ${error.message}`, 'error');
@@ -83,21 +96,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 })
             });
 
-            if (!response.ok) {
-                throw new Error(await response.text());
-            }
-
-            // Получаем имя файла из заголовка Content-Disposition
-            const contentDisposition = response.headers.get('Content-Disposition');
-            let filename = 'report.xlsx';
-            if (contentDisposition) {
-                const matches = contentDisposition.match(/filename\*=UTF-8''(.+)/);
-                if (matches) {
-                    filename = decodeURIComponent(matches[1]);
-                }
-            }
-
-            await downloadExcel(response, filename);
+            await downloadExcel(response);
             
             showStatus('Данные успешно загружены', 'success');
             showAlert('Excel файл успешно сформирован', 'success');

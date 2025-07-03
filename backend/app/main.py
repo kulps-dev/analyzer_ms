@@ -651,12 +651,26 @@ async def get_task_status(task_id: str):
 async def export_excel(date_range: DateRange):
     conn = None
     try:
-        logger.info(f"Starting Excel export for {date_range.start_date} to {date_range.end_date}")
-        
-        # Create workbook in memory
-        wb = Workbook()
         conn = get_db_connection()
         cur = conn.cursor()
+        
+        cur.execute("""
+            SELECT 
+                number, date, counterparty, store, project, sales_channel,
+                amount, cost_price, overhead, profit, promo_period, delivery_amount,
+                admin_data, gdeslon, cityads, ozon, ozon_fbs, yamarket_fbs,
+                yamarket_dbs, yandex_direct, price_ru, wildberries, gis2, seo,
+                programmatic, avito, multiorders, estimated_discount
+            FROM demands
+            WHERE date BETWEEN %s AND %s
+            ORDER BY date DESC
+        """, (date_range.start_date, date_range.end_date))
+        
+        rows = cur.fetchall()
+        
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Отчет по отгрузкам"
         
         # Create sheets
         await create_demands_sheet(wb, cur, date_range)
@@ -667,30 +681,20 @@ async def export_excel(date_range: DateRange):
         buffer = io.BytesIO()
         wb.save(buffer)
         buffer.seek(0)
-        file_content = buffer.getvalue()
         
-        # Generate filename
-        start_date_str = date_range.start_date[:10].replace("-", "")
-        end_date_str = date_range.end_date[:10].replace("-", "")
-        filename = f"report_{start_date_str}_{end_date_str}.xlsx"
-        
-        # Create response with proper headers
-        headers = {
-            "Content-Disposition": f"attachment; filename={filename}",
-            "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        }
-        
-        return Response(content=file_content, headers=headers)
-        
+        # Возвращаем файл как бинарный поток
+        from fastapi.responses import StreamingResponse
+        filename = f"Отчет_по_отгрузкам_{date_range.start_date}_по_{date_range.end_date}.xlsx"
+        return StreamingResponse(
+            buffer,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
     except Exception as e:
-        logger.error(f"Excel export error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Ошибка при формировании Excel: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn:
             conn.close()
-        # Ensure workbook is properly closed
-        if 'wb' in locals():
-            wb.close()
 
 async def create_demands_sheet(wb, cur, date_range):
     """Создает лист с отгрузками"""
