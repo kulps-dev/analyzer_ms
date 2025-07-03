@@ -664,6 +664,9 @@ async def export_excel(date_range: DateRange):
         # Лист с товарами
         await create_positions_sheet(wb, cur, date_range)
         
+        # Лист со сводным отчетом по товарам
+        await create_summary_sheet(wb, cur, date_range)
+        
         buffer = io.BytesIO()
         wb.save(buffer)
         buffer.seek(0)
@@ -952,6 +955,135 @@ async def create_positions_sheet(wb, cur, date_range):
         elif col == 1:
             cell.value = "Общий итог:"
             cell.alignment = Alignment(horizontal='right', vertical='center')
+
+async def create_summary_sheet(wb, cur, date_range):
+    """Создает лист со сводным отчетом по товарам"""
+    cur.execute("""
+        SELECT 
+            dp.product_name,
+            dp.article,
+            dp.code,
+            SUM(dp.quantity) as total_quantity,
+            d.store,
+            d.project,
+            d.sales_channel,
+            AVG(dp.price) as avg_price,
+            SUM(d.delivery_amount * (dp.amount / NULLIF(d.amount, 0))) as delivery_share,
+            SUM(dp.amount) as total_amount,
+            SUM(dp.cost_price) as total_cost_price,
+            SUM(d.overhead * (dp.amount / NULLIF(d.amount, 0))) as overhead_share,
+            SUM(dp.profit) as total_profit,
+            CASE 
+                WHEN SUM(dp.amount) = 0 THEN 0 
+                ELSE (SUM(dp.amount) - SUM(dp.cost_price) - SUM(d.overhead * (dp.amount / NULLIF(d.amount, 0)))) / SUM(dp.amount) * 100 
+            END as margin
+        FROM demand_positions dp
+        JOIN demands d ON dp.demand_id = d.id
+        WHERE d.date BETWEEN %s AND %s
+        GROUP BY dp.product_name, dp.article, dp.code, d.store, d.project, d.sales_channel
+        ORDER BY total_amount DESC
+    """, (date_range.start_date, date_range.end_date))
+    
+    rows = cur.fetchall()
+    
+    ws = wb.create_sheet("Сводный отчет по товарам")
+    
+    # Заголовки столбцов
+    headers = [
+        "Товар", "Артикул", "Код", "Общее количество", "Склад", "Проект", 
+        "Канал продаж", "Средняя цена", "Сумма оплачиваемой доставки", 
+        "Общая сумма", "Себестоимость товара", "Сумма накладных расходов", 
+        "Общая прибыль", "Маржинальность"
+    ]
+    
+    # Стили для Excel
+    from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+    from openpyxl.utils import get_column_letter
+    
+    # Стиль заголовков
+    header_font = Font(name='Calibri', bold=True, size=11, color='FFFFFF')
+    header_fill = PatternFill(start_color='5B9BD5', end_color='5B9BD5', fill_type='solid')
+    header_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'),
+                         top=Side(style='thin'), bottom=Side(style='thin'))
+    
+    # Добавляем заголовки
+    ws.append(headers)
+    
+    # Применяем стили к заголовкам
+    for col in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=col)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_alignment
+        cell.border = thin_border
+        # Автоподбор ширины столбца
+        column_letter = get_column_letter(col)
+        ws.column_dimensions[column_letter].width = max(15, len(headers[col-1]) * 1.1)
+    
+    # Основной стиль для данных
+    data_font = Font(name='Calibri', size=10)
+    money_format = '#,##0.00'
+    percent_format = '0.00%'
+    
+    # Добавляем данные
+    for row in rows:
+        ws.append(row)
+    
+    # Форматируем числовые столбцы
+    numeric_columns = [4, 8, 9, 10, 11, 12, 13]  # Номера столбцов с числами
+    percent_column = 14  # Маржинальность
+    
+    for row_idx in range(2, len(rows) + 2):
+        for col_idx in numeric_columns:
+            cell = ws.cell(row=row_idx, column=col_idx)
+            cell.number_format = money_format
+            cell.alignment = Alignment(horizontal='right', vertical='center')
+        
+        # Форматируем столбец с маржинальностью как процент
+        cell = ws.cell(row=row_idx, column=percent_column)
+        cell.number_format = percent_format
+        cell.alignment = Alignment(horizontal='right', vertical='center')
+    
+    # Подсветка отрицательной маржинальности
+    for row_idx in range(2, len(rows) + 2):
+        cell = ws.cell(row=row_idx, column=percent_column)
+        if cell.value is not None and cell.value < 0:
+            cell.fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid')
+    
+    # Добавляем итоговую строку
+    total_row = len(rows) + 2
+    ws.append([""] * len(headers))
+    
+    # Формируем итоговую строку
+    for col in range(1, len(headers) + 1):
+        cell = ws.cell(row=total_row, column=col)
+        cell.font = Font(bold=True)
+        cell.border = thin_border
+        
+        # Суммы для числовых столбцов
+        if col in numeric_columns + [percent_column]:
+            column_letter = get_column_letter(col)
+            if col == percent_column:
+                # Для маржинальности считаем средневзвешенное значение
+                formula = f"=SUM(J2:J{total_row-1})"
+                formula_cost = f"=SUM(K2:K{total_row-1})"
+                formula_overhead = f"=SUM(L2:L{total_row-1})"
+                cell.value = f"=IF({formula}=0, 0, ({formula}-{formula_cost}-{formula_overhead})/{formula})"
+            else:
+                formula = f"SUM({column_letter}2:{column_letter}{total_row-1})"
+                cell.value = f"=ROUND({formula}, 2)"
+            
+            cell.number_format = money_format if col != percent_column else percent_format
+            cell.alignment = Alignment(horizontal='right', vertical='center')
+            cell.fill = PatternFill(start_color='D9E1F2', end_color='D9E1F2', fill_type='solid')
+        elif col == 1:
+            cell.value = "Общий итог:"
+            cell.alignment = Alignment(horizontal='right', vertical='center')
+    
+    # Добавляем автофильтр и замораживаем заголовки
+    ws.auto_filter.ref = ws.dimensions
+    ws.freeze_panes = 'A2'
 
 def apply_sheet_styling(ws, headers, rows, numeric_columns, profit_column, sheet_type):
     """Применяет стили к листу Excel"""
