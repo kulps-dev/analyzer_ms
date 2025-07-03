@@ -28,38 +28,50 @@ document.addEventListener('DOMContentLoaded', function() {
     // Функция для скачивания Excel
     // Новая функция для скачивания бинарного Excel
     async function downloadExcel(response, filename) {
-    try {
-        if (!response.ok) {
-            const error = await response.json().catch(() => response.text());
-            throw new Error(error.message || error || `HTTP error! status: ${response.status}`);
+        try {
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(errorText || `HTTP error! status: ${response.status}`);
+            }
+    
+            // Проверяем заголовок Content-Disposition
+            const contentDisposition = response.headers.get('Content-Disposition');
+            let finalFilename = filename;
+            
+            if (contentDisposition) {
+                const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/i) || 
+                                    contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+                if (filenameMatch && filenameMatch[1]) {
+                    finalFilename = decodeURIComponent(filenameMatch[1]);
+                    console.log('Filename from header:', finalFilename);
+                }
+            }
+    
+            const blob = await response.blob();
+            console.log('Blob type:', blob.type, 'size:', blob.size);
+    
+            if (blob.size === 0) {
+                throw new Error('Received empty file');
+            }
+    
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = finalFilename;
+            document.body.appendChild(a);
+            a.click();
+    
+            setTimeout(() => {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }, 100);
+    
+        } catch (error) {
+            console.error('Error downloading Excel:', error);
+            showAlert(`Ошибка при скачивании файла: ${error.message}`, 'error');
+            throw error;
         }
-
-        const blob = await response.blob();
-        
-        // Verify blob is valid Excel file
-        if (blob.size === 0 || !blob.type.includes('spreadsheet')) {
-            throw new Error('Invalid file received from server');
-        }
-
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename || 'report.xlsx';
-        document.body.appendChild(a);
-        a.click();
-        
-        // Cleanup
-        setTimeout(() => {
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        }, 100);
-
-    } catch (error) {
-        console.error('Download error:', error);
-        showAlert(`Ошибка при скачивании файла: ${error.message}`, 'error');
-        throw error;
     }
-}
 
     // Обработчик кнопки "Экспорт в Excel"
     document.getElementById('export-excel-btn').addEventListener('click', async function() {
