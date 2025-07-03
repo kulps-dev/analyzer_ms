@@ -651,50 +651,36 @@ async def get_task_status(task_id: str):
 async def export_excel(date_range: DateRange):
     conn = None
     try:
+        # Ваш код для получения данных из БД
         conn = get_db_connection()
         cur = conn.cursor()
-        
-        cur.execute("""
-            SELECT 
-                number, date, counterparty, store, project, sales_channel,
-                amount, cost_price, overhead, profit, promo_period, delivery_amount,
-                admin_data, gdeslon, cityads, ozon, ozon_fbs, yamarket_fbs,
-                yamarket_dbs, yandex_direct, price_ru, wildberries, gis2, seo,
-                programmatic, avito, multiorders, estimated_discount
-            FROM demands
-            WHERE date BETWEEN %s AND %s
-            ORDER BY date DESC
-        """, (date_range.start_date, date_range.end_date))
-        
+        cur.execute("SELECT * FROM demands WHERE date BETWEEN %s AND %s", 
+                   (date_range.start_date, date_range.end_date))
         rows = cur.fetchall()
-        
+
+        # Создаем Excel файл
         wb = Workbook()
         ws = wb.active
-        ws.title = "Отчет по отгрузкам"
+        ws.append(["Номер", "Дата", "Сумма"])  # Заголовки
         
-        # Create sheets
-        await create_demands_sheet(wb, cur, date_range)
-        await create_positions_sheet(wb, cur, date_range)
-        await create_summary_sheet(wb, cur, date_range)
-        
-        # Save to BytesIO with optimized writer
+        for row in rows:
+            ws.append([row[0], row[1], row[2]])  # Данные
+
+        # Сохраняем в буфер
         buffer = io.BytesIO()
         wb.save(buffer)
         buffer.seek(0)
-        
-        # Простое имя файла без русских символов
-        filename = f"report_{date_range.start_date}_to_{date_range.end_date}.xlsx"
-        
-        return StreamingResponse(
-            buffer,
+
+        # Возвращаем файл
+        return Response(
+            content=buffer.getvalue(),
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={
-                "Content-Disposition": f"attachment; filename={filename}"
-            }
+            headers={"Content-Disposition": "attachment; filename=report.xlsx"}
         )
+        
     except Exception as e:
         logger.error(f"Export error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Export failed")
+        return Response("Export failed", status_code=500)
     finally:
         if conn:
             conn.close()

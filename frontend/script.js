@@ -27,48 +27,53 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Функция для скачивания Excel
     // Новая функция для скачивания бинарного Excel
-    // Функция для скачивания Excel
-    async function downloadExcel(response) {
+    async function downloadExcel() {
+        const startDate = document.getElementById('start-date').value;
+        const endDate = document.getElementById('end-date').value;
+        
+        if (!startDate || !endDate) {
+            alert('Укажите даты');
+            return;
+        }
+    
         try {
-            if (!response.ok) {
-                throw new Error(await response.text());
-            }
-            
-            // Получаем бинарные данные
+            const response = await fetch('/api/export/excel', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    start_date: startDate,
+                    end_date: endDate
+                })
+            });
+    
+            if (!response.ok) throw new Error('Ошибка сервера');
+    
             const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = 'report.xlsx';
+            link.click();
             
-            // Создаем временную ссылку для скачивания
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'report.xlsx'; // Фиксированное имя файла
-            document.body.appendChild(a);
-            a.click();
-            
-            // Очистка
-            setTimeout(() => {
-                document.body.removeChild(a);
-                window.URL.revokeObjectURL(url);
-            }, 100);
+            setTimeout(() => URL.revokeObjectURL(link.href), 100);
             
         } catch (error) {
-            console.error('Download failed:', error);
-            showAlert('Download failed: ' + error.message, 'error');
+            alert('Ошибка: ' + error.message);
+            console.error(error);
         }
     }
-    
-    // Обработчик кнопки экспорта
+
+    // Обработчик кнопки "Экспорт в Excel"
     document.getElementById('export-excel-btn').addEventListener('click', async function() {
         const startDate = document.getElementById('start-date').value;
         const endDate = document.getElementById('end-date').value;
         
         if (!startDate || !endDate) {
-            showAlert('Please select date range', 'error');
+            showAlert('Пожалуйста, укажите период анализа', 'error');
             return;
         }
-    
+
         try {
-            showStatus('Generating report...', 'loading');
+            showStatus('Загрузка данных...', 'loading');
             
             const response = await fetch('/api/export/excel', {
                 method: 'POST',
@@ -78,13 +83,29 @@ document.addEventListener('DOMContentLoaded', function() {
                     end_date: endDate + " 23:59:59"
                 })
             });
-    
-            await downloadExcel(response);
-            showStatus('Report downloaded', 'success');
+
+            if (!response.ok) {
+                throw new Error(await response.text());
+            }
+
+            // Получаем имя файла из заголовка Content-Disposition
+            const contentDisposition = response.headers.get('Content-Disposition');
+            let filename = 'report.xlsx';
+            if (contentDisposition) {
+                const matches = contentDisposition.match(/filename\*=UTF-8''(.+)/);
+                if (matches) {
+                    filename = decodeURIComponent(matches[1]);
+                }
+            }
+
+            await downloadExcel(response, filename);
             
+            showStatus('Данные успешно загружены', 'success');
+            showAlert('Excel файл успешно сформирован', 'success');
         } catch (error) {
-            showStatus('Export failed', 'error');
-            console.error('Export error:', error);
+            console.error('Ошибка:', error);
+            showStatus('Ошибка при загрузке данных', 'error');
+            showAlert(error.message, 'error');
         }
     });
 
