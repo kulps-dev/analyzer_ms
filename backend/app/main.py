@@ -1098,7 +1098,7 @@ async def export_to_gsheet(date_range: DateRange):
 
         # Стили оформления
         HEADER_STYLE = {
-            "backgroundColor": {"red": 0.20, "green": 0.47, "blue": 0.73},
+            "backgroundColor": {"red": 0.20, "green": 0.47, "blue": 0.73},  # Синий как в Excel
             "textFormat": {"bold": True, "fontSize": 11, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
             "horizontalAlignment": "CENTER",
             "verticalAlignment": "MIDDLE",
@@ -1112,13 +1112,13 @@ async def export_to_gsheet(date_range: DateRange):
         }
 
         SUMMARY_ROW_STYLE = {
-            "backgroundColor": {"red": 0.85, "green": 0.88, "blue": 0.94},
+            "backgroundColor": {"red": 0.85, "green": 0.88, "blue": 0.94},  # Светло-синий как в Excel
             "textFormat": {"bold": True},
             "borders": HEADER_STYLE["borders"]
         }
 
         PRODUCT_ROW_STYLE = {
-            "backgroundColor": {"red": 1, "green": 1, "blue": 1},
+            "backgroundColor": {"red": 1, "green": 1, "blue": 1},  # Белый фон
             "borders": {
                 "top": {"style": "SOLID", "width": 1, "color": {"red": 0.8, "green": 0.8, "blue": 0.8}},
                 "bottom": {"style": "SOLID", "width": 1, "color": {"red": 0.8, "green": 0.8, "blue": 0.8}},
@@ -1128,7 +1128,7 @@ async def export_to_gsheet(date_range: DateRange):
         }
 
         TOTAL_ROW_STYLE = {
-            "backgroundColor": {"red": 0.85, "green": 0.85, "blue": 0.85},
+            "backgroundColor": {"red": 0.85, "green": 0.85, "blue": 0.85},  # Серый фон
             "textFormat": {"bold": True},
             "borders": HEADER_STYLE["borders"]
         }
@@ -1144,45 +1144,36 @@ async def export_to_gsheet(date_range: DateRange):
         }
 
         NEGATIVE_PROFIT_STYLE = {
-            "backgroundColor": {"red": 1, "green": 0.8, "blue": 0.8}
+            "backgroundColor": {"red": 1, "green": 0.8, "blue": 0.8}  # Красный для отрицательной прибыли
         }
 
-        # Вспомогательная функция для преобразования Decimal
-        def decimal_to_float(value):
-            if isinstance(value, Decimal):
-                return float(value)
-            return value
-
-        # ===== 1. ЛИСТ С ТОВАРАМИ =====
+        # ===== 1. ЛИСТ С ТОВАРАМИ (как основной в Excel) =====
         worksheet_positions = sh.add_worksheet(title="Отчет по товарам", rows=1000, cols=33)
         
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # Получаем данные с преобразованием Decimal
+        # Получаем данные
         cur.execute("""
             SELECT 
-                d.number, d.date, d.counterparty, d.store, d.project, d.sales_channel,
-                dp.product_name, dp.quantity, dp.price, dp.amount, 
-                dp.cost_price, dp.article, dp.code, dp.overhead, dp.profit,
-                d.promo_period, d.delivery_amount, d.admin_data,
-                d.gdeslon, d.cityads, d.ozon, d.ozon_fbs,
-                d.yamarket_fbs, d.yamarket_dbs, d.yandex_direct,
-                d.price_ru, d.wildberries, d.gis2, d.seo,
-                d.programmatic, d.avito, d.multiorders,
-                d.estimated_discount
+                d.number, d.date::text, d.counterparty, d.store, d.project, d.sales_channel,
+                dp.product_name, dp.quantity::float, dp.price::float, dp.amount::float, 
+                dp.cost_price::float, dp.article, dp.code, dp.overhead::float, dp.profit::float,
+                d.promo_period, d.delivery_amount::float, d.admin_data::float,
+                d.gdeslon::float, d.cityads::float, d.ozon::float, d.ozon_fbs::float,
+                d.yamarket_fbs::float, d.yamarket_dbs::float, d.yandex_direct::float,
+                d.price_ru::float, d.wildberries::float, d.gis2::float, d.seo::float,
+                d.programmatic::float, d.avito::float, d.multiorders::float,
+                d.estimated_discount::float
             FROM demand_positions dp
             JOIN demands d ON dp.demand_id = d.id
             WHERE d.date BETWEEN %s AND %s
             ORDER BY d.number, d.date DESC
         """, (date_range.start_date, date_range.end_date))
         
-        # Преобразуем Decimal в float
-        positions = []
-        for row in cur.fetchall():
-            positions.append([decimal_to_float(value) for value in row])
+        positions = cur.fetchall()
         
-        # Заголовки
+        # Заголовки (как в Excel)
         pos_headers = [
             "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
             "Товар", "Количество", "Цена", "Сумма", "Себестоимость", "Артикул", "Код",
@@ -1195,16 +1186,17 @@ async def export_to_gsheet(date_range: DateRange):
         # Добавляем заголовки
         worksheet_positions.append_row(pos_headers)
         
-        # Подготовка данных для вставки с группировкой
+        # Подготовка данных для вставки с группировкой как в Excel
         if positions:
             current_demand = None
             rows_to_add = []
-            batch_size = 100
+            batch_size = 100  # Размер пакета для вставки
             total_rows = 0
             
             for row in positions:
                 demand_number = row[0]
                 
+                # Новая отгрузка - добавляем строку с итогами
                 if demand_number != current_demand:
                     current_demand = demand_number
                     
@@ -1214,27 +1206,25 @@ async def export_to_gsheet(date_range: DateRange):
                         WHERE number = %s AND date BETWEEN %s AND %s
                         LIMIT 1
                     """, (demand_number, date_range.start_date, date_range.end_date))
-                    total_cost = decimal_to_float(cur.fetchone()[0]) if cur.rowcount > 0 else 0
+                    total_cost = cur.fetchone()[0] if cur.rowcount > 0 else 0
                     
                     # Строка с итогами по отгрузке
-                    summary_row = [
+                    rows_to_add.append([
                         demand_number, row[1], row[2], row[3], row[4], row[5],
                         "Итого по отгрузке:", "", "", row[9], total_cost, "", "",
                         row[13], row[14], row[15], row[16], row[17], row[18],
                         row[19], row[20], row[21], row[22], row[23], row[24],
                         row[25], row[26], row[27], row[28], row[29], row[30],
                         row[31]
-                    ]
-                    rows_to_add.append([decimal_to_float(value) for value in summary_row])
+                    ])
                     total_rows += 1
                 
                 # Строка с товаром
-                product_row = [
+                rows_to_add.append([
                     "", "", "", "", "", "",
                     row[6], row[7], row[8], row[9], row[10], row[11], row[12],
                     "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""
-                ]
-                rows_to_add.append([decimal_to_float(value) for value in product_row])
+                ])
                 total_rows += 1
             
             # Вставляем данные пакетами
@@ -1246,7 +1236,7 @@ async def export_to_gsheet(date_range: DateRange):
         last_row = total_rows + 1 if positions else 1
         requests = []
         
-        # Форматирование заголовков
+        # 1. Форматирование заголовков
         requests.append({
             "repeatCell": {
                 "range": {
@@ -1259,7 +1249,7 @@ async def export_to_gsheet(date_range: DateRange):
             }
         })
         
-        # Форматирование строк с товарами
+        # 2. Форматирование строк с товарами
         requests.append({
             "repeatCell": {
                 "range": {
@@ -1272,7 +1262,8 @@ async def export_to_gsheet(date_range: DateRange):
             }
         })
         
-        # Форматирование строк с итогами по отгрузке
+        # 3. Форматирование строк с итогами по отгрузке
+        # Находим все строки с "Итого по отгрузке:"
         if positions:
             for i, row in enumerate(rows_to_add, start=1):
                 if row[6] == "Итого по отгрузке:":
@@ -1303,8 +1294,8 @@ async def export_to_gsheet(date_range: DateRange):
                         }
                     })
         
-        # Форматирование числовых столбцов
-        numeric_columns = [7, 8, 9, 10, 13, 14] + list(range(16, 32))
+        # 4. Форматирование числовых столбцов
+        numeric_columns = [7, 8, 9, 10, 13, 14] + list(range(16, 32))  # H, I, J, K, N, O, Q-AD
         for col in numeric_columns:
             requests.append({
                 "repeatCell": {
@@ -1320,7 +1311,7 @@ async def export_to_gsheet(date_range: DateRange):
                 }
             })
         
-        # Форматирование дат
+        # 5. Форматирование дат
         requests.append({
             "repeatCell": {
                 "range": {
@@ -1335,7 +1326,7 @@ async def export_to_gsheet(date_range: DateRange):
             }
         })
         
-        # Подсветка отрицательной прибыли
+        # 6. Подсветка отрицательной прибыли
         requests.append({
             "addConditionalFormatRule": {
                 "rule": {
@@ -1358,7 +1349,7 @@ async def export_to_gsheet(date_range: DateRange):
             }
         })
         
-        # Установка ширины столбцов
+        # 7. Установка ширины столбцов (как в Excel)
         column_widths = [
             {"pixelSize": 100},  # A: Номер отгрузки
             {"pixelSize": 150},  # B: Дата
@@ -1409,7 +1400,7 @@ async def export_to_gsheet(date_range: DateRange):
                 }
             })
         
-        # Добавляем итоговую строку
+        # 8. Добавляем итоговую строку (как в Excel)
         if positions:
             # Формулы для суммирования
             sum_formulas = [
@@ -1456,9 +1447,25 @@ async def export_to_gsheet(date_range: DateRange):
                 }
             })
             
+            # Форматирование числовых ячеек в итоговой строке
+            for col in [7, 8, 9, 10, 13, 14] + list(range(16, 33)):
+                requests.append({
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": worksheet_positions.id,
+                            "startRowIndex": last_row,
+                            "endRowIndex": last_row + 1,
+                            "startColumnIndex": col,
+                            "endColumnIndex": col + 1
+                        },
+                        "cell": {"userEnteredFormat": NUMBER_FORMAT},
+                        "fields": "userEnteredFormat.numberFormat,userEnteredFormat.horizontalAlignment"
+                    }
+                })
+            
             last_row += 1
         
-        # Фильтры и закрепление
+        # 9. Фильтры и закрепление
         requests.extend([
             {
                 "setBasicFilter": {
@@ -1484,33 +1491,29 @@ async def export_to_gsheet(date_range: DateRange):
             }
         ])
         
-        # ===== 2. ЛИСТ С ОТГРУЗКАМИ =====
+        # ===== 2. ЛИСТ С ОТГРУЗКАМИ (как второй лист в Excel) =====
         worksheet_demands = sh.add_worksheet(title="Отчет по отгрузкам", rows=1000, cols=28)
         
-        # Получаем данные с преобразованием Decimal
+        # Получаем данные
         cur.execute("""
             SELECT 
-                number, date, counterparty, store, project, sales_channel,
-                amount, cost_price, overhead, profit, 
-                promo_period, delivery_amount, admin_data,
-                gdeslon, cityads, ozon, ozon_fbs,
-                yamarket_fbs, yamarket_dbs, yandex_direct,
-                price_ru, wildberries, gis2, seo,
-                programmatic, avito, multiorders,
-                estimated_discount
+                number, date::text, counterparty, store, project, sales_channel,
+                amount::float, cost_price::float, overhead::float, profit::float, 
+                promo_period, delivery_amount::float, admin_data::float,
+                gdeslon::float, cityads::float, ozon::float, ozon_fbs::float,
+                yamarket_fbs::float, yamarket_dbs::float, yandex_direct::float,
+                price_ru::float, wildberries::float, gis2::float, seo::float,
+                programmatic::float, avito::float, multiorders::float,
+                estimated_discount::float
             FROM demands
             WHERE date BETWEEN %s AND %s
             ORDER BY date DESC
         """, (date_range.start_date, date_range.end_date))
         
-        # Преобразуем Decimal в float
-        demands = []
-        for row in cur.fetchall():
-            demands.append([decimal_to_float(value) for value in row])
-        
+        demands = cur.fetchall()
         conn.close()
         
-        # Заголовки
+        # Заголовки (как в Excel)
         demands_headers = [
             "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
             "Сумма", "Себестоимость", "Накладные расходы", "Прибыль", "Акционный период",
@@ -1523,13 +1526,13 @@ async def export_to_gsheet(date_range: DateRange):
         # Добавляем заголовки и данные
         worksheet_demands.append_row(demands_headers)
         if demands:
-            worksheet_demands.append_rows(demands)
+            worksheet_demands.append_rows([list(row) for row in demands])
         
         # Форматируем лист с отгрузками
         last_demand_row = len(demands) + 1 if demands else 1
         demand_requests = []
         
-        # Форматирование заголовков
+        # 1. Форматирование заголовков
         demand_requests.append({
             "repeatCell": {
                 "range": {
@@ -1542,7 +1545,7 @@ async def export_to_gsheet(date_range: DateRange):
             }
         })
         
-        # Форматирование данных
+        # 2. Форматирование данных
         demand_requests.append({
             "repeatCell": {
                 "range": {
@@ -1555,8 +1558,8 @@ async def export_to_gsheet(date_range: DateRange):
             }
         })
         
-        # Форматирование числовых столбцов
-        numeric_demand_columns = [6, 7, 8, 9, 11] + list(range(12, 28))
+        # 3. Форматирование числовых столбцов
+        numeric_demand_columns = [6, 7, 8, 9, 11] + list(range(12, 28))  # G, H, I, J, L-AB
         for col in numeric_demand_columns:
             demand_requests.append({
                 "repeatCell": {
@@ -1572,7 +1575,7 @@ async def export_to_gsheet(date_range: DateRange):
                 }
             })
         
-        # Форматирование дат
+        # 4. Форматирование дат
         demand_requests.append({
             "repeatCell": {
                 "range": {
@@ -1587,7 +1590,7 @@ async def export_to_gsheet(date_range: DateRange):
             }
         })
         
-        # Подсветка отрицательной прибыли
+        # 5. Подсветка отрицательной прибыли
         demand_requests.append({
             "addConditionalFormatRule": {
                 "rule": {
@@ -1610,7 +1613,7 @@ async def export_to_gsheet(date_range: DateRange):
             }
         })
         
-        # Добавляем итоговую строку
+        # 6. Добавляем итоговую строку
         if demands:
             # Формулы для суммирования
             sum_formulas = [
@@ -1654,9 +1657,25 @@ async def export_to_gsheet(date_range: DateRange):
                 }
             })
             
+            # Форматирование числовых ячеек в итоговой строке
+            for col in numeric_demand_columns:
+                demand_requests.append({
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": worksheet_demands.id,
+                            "startRowIndex": last_demand_row,
+                            "endRowIndex": last_demand_row + 1,
+                            "startColumnIndex": col,
+                            "endColumnIndex": col + 1
+                        },
+                        "cell": {"userEnteredFormat": NUMBER_FORMAT},
+                        "fields": "userEnteredFormat.numberFormat,userEnteredFormat.horizontalAlignment"
+                    }
+                })
+            
             last_demand_row += 1
         
-        # Установка ширины столбцов
+        # 7. Установка ширины столбцов
         demand_column_widths = [
             {"pixelSize": 100},  # A: Номер отгрузки
             {"pixelSize": 150},  # B: Дата
@@ -1702,7 +1721,7 @@ async def export_to_gsheet(date_range: DateRange):
                 }
             })
         
-        # Фильтры и закрепление
+        # 8. Фильтры и закрепление
         demand_requests.extend([
             {
                 "setBasicFilter": {
