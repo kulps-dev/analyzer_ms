@@ -1210,6 +1210,78 @@ class DecimalEncoder(json.JSONEncoder):
         return super().default(obj)
 
 @app.post("/api/export/gsheet")
+
+# Стили для Google Sheets
+HEADER_STYLE = {
+    "backgroundColor": {"red": 0.20, "green": 0.39, "blue": 0.64},  # Темно-синий
+    "textFormat": {"bold": True, "fontSize": 11, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
+    "horizontalAlignment": "CENTER",
+    "verticalAlignment": "MIDDLE",
+    "wrapStrategy": "WRAP",
+    "borders": {
+        "top": {"style": "SOLID", "width": 1},
+        "bottom": {"style": "SOLID", "width": 1},
+        "left": {"style": "SOLID", "width": 1},
+        "right": {"style": "SOLID", "width": 1}
+    }
+}
+
+PRODUCT_ROW_STYLE = {
+    "backgroundColor": {"red": 1, "green": 1, "blue": 1},  # Белый
+    "textFormat": {"fontSize": 10},
+    "horizontalAlignment": "LEFT",
+    "verticalAlignment": "MIDDLE",
+    "wrapStrategy": "WRAP",
+    "borders": {
+        "top": {"style": "SOLID", "width": 1, "color": {"red": 0.8, "green": 0.8, "blue": 0.8}},
+        "bottom": {"style": "SOLID", "width": 1, "color": {"red": 0.8, "green": 0.8, "blue": 0.8}},
+        "left": {"style": "SOLID", "width": 1, "color": {"red": 0.8, "green": 0.8, "blue": 0.8}},
+        "right": {"style": "SOLID", "width": 1, "color": {"red": 0.8, "green": 0.8, "blue": 0.8}}
+    }
+}
+
+SUMMARY_ROW_STYLE = {
+    "backgroundColor": {"red": 0.85, "green": 0.88, "blue": 0.95},  # Светло-синий
+    "textFormat": {"bold": True, "fontSize": 10},
+    "horizontalAlignment": "LEFT",
+    "verticalAlignment": "MIDDLE",
+    "wrapStrategy": "WRAP",
+    "borders": HEADER_STYLE["borders"]
+}
+
+TOTAL_ROW_STYLE = {
+    "backgroundColor": {"red": 0.85, "green": 0.85, "blue": 0.85},  # Серый
+    "textFormat": {"bold": True, "fontSize": 10},
+    "horizontalAlignment": "RIGHT",
+    "verticalAlignment": "MIDDLE",
+    "borders": HEADER_STYLE["borders"]
+}
+
+NEGATIVE_PROFIT_STYLE = {
+    "backgroundColor": {"red": 1, "green": 0.8, "blue": 0.8},  # Светло-красный
+    "textFormat": {"bold": True}
+}
+
+NUMBER_FORMAT = {
+    "numberFormat": {"type": "NUMBER", "pattern": "#,##0.00"},
+    "horizontalAlignment": "RIGHT"
+}
+
+DATE_FORMAT = {
+    "numberFormat": {"type": "DATE", "pattern": "dd.mm.yyyy"},
+    "horizontalAlignment": "CENTER"
+}
+
+# Функция для подготовки значений
+def prepare_value(value):
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+    elif isinstance(value, Decimal):
+        return float(value)
+    elif value is None:
+        return ""
+    return value
+
 async def export_to_gsheet(date_range: DateRange):
     try:
         logger.info("Создание Google Таблицы с оформлением как в Excel...")
