@@ -1234,64 +1234,15 @@ async def export_to_gsheet(date_range: DateRange):
         if len(sh.worksheets()) > 1:
             sh.del_worksheet(sh.get_worksheet(0))
 
-        # Стили оформления
-        HEADER_STYLE = {
-            "backgroundColor": {"red": 0.20, "green": 0.47, "blue": 0.73},
+        # Стили оформления (добавляем стиль для сводного отчета)
+        SUMMARY_HEADER_STYLE = {
+            "backgroundColor": {"red": 0.31, "green": 0.60, "blue": 0.83},  # Более светлый синий
             "textFormat": {"bold": True, "fontSize": 11, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
             "horizontalAlignment": "CENTER",
             "verticalAlignment": "MIDDLE",
             "wrapStrategy": "WRAP",
-            "borders": {
-                "top": {"style": "SOLID", "width": 1, "color": {"red": 0, "green": 0, "blue": 0}},
-                "bottom": {"style": "SOLID", "width": 1, "color": {"red": 0, "green": 0, "blue": 0}},
-                "left": {"style": "SOLID", "width": 1, "color": {"red": 0, "green": 0, "blue": 0}},
-                "right": {"style": "SOLID", "width": 1, "color": {"red": 0, "green": 0, "blue": 0}}
-            }
-        }
-
-        SUMMARY_ROW_STYLE = {
-            "backgroundColor": {"red": 0.85, "green": 0.88, "blue": 0.94},
-            "textFormat": {"bold": True},
             "borders": HEADER_STYLE["borders"]
         }
-
-        PRODUCT_ROW_STYLE = {
-            "backgroundColor": {"red": 1, "green": 1, "blue": 1},
-            "borders": {
-                "top": {"style": "SOLID", "width": 1, "color": {"red": 0.8, "green": 0.8, "blue": 0.8}},
-                "bottom": {"style": "SOLID", "width": 1, "color": {"red": 0.8, "green": 0.8, "blue": 0.8}},
-                "left": {"style": "SOLID", "width": 1, "color": {"red": 0.8, "green": 0.8, "blue": 0.8}},
-                "right": {"style": "SOLID", "width": 1, "color": {"red": 0.8, "green": 0.8, "blue": 0.8}}
-            }
-        }
-
-        TOTAL_ROW_STYLE = {
-            "backgroundColor": {"red": 0.85, "green": 0.85, "blue": 0.85},
-            "textFormat": {"bold": True},
-            "borders": HEADER_STYLE["borders"]
-        }
-
-        NUMBER_FORMAT = {
-            "numberFormat": {"type": "NUMBER", "pattern": "#,##0.00"},
-            "horizontalAlignment": "RIGHT"
-        }
-
-        DATE_FORMAT = {
-            "numberFormat": {"type": "DATE", "pattern": "dd.mm.yyyy hh:mm"},
-            "horizontalAlignment": "CENTER"
-        }
-
-        NEGATIVE_PROFIT_STYLE = {
-            "backgroundColor": {"red": 1, "green": 0.8, "blue": 0.8}
-        }
-
-        # Вспомогательная функция для преобразования данных
-        def prepare_value(value):
-            if isinstance(value, datetime):
-                return value.isoformat()
-            elif isinstance(value, Decimal):
-                return float(value)
-            return value
 
         # ===== 1. ЛИСТ С ТОВАРАМИ =====
         worksheet_positions = sh.add_worksheet(title="Отчет по товарам", rows=1000, cols=33)
@@ -1868,14 +1819,252 @@ async def export_to_gsheet(date_range: DateRange):
             }
         ])
         
+        # ===== 3. ЛИСТ СО СВОДНЫМ ОТЧЕТОМ ПО ТОВАРАМ =====
+        worksheet_summary = sh.add_worksheet(title="Сводный отчет по товарам", rows=1000, cols=14)
+        
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Получаем данные для сводного отчета
+        cur.execute("""
+            SELECT 
+                dp.product_name,
+                dp.article,
+                dp.code,
+                SUM(dp.quantity) as total_quantity,
+                d.store,
+                d.project,
+                d.sales_channel,
+                AVG(dp.price) as avg_price,
+                SUM(d.delivery_amount * (dp.amount / NULLIF(d.amount, 0))) as delivery_share,
+                SUM(dp.amount) as total_amount,
+                SUM(dp.cost_price) as total_cost_price,
+                SUM(d.overhead * (dp.amount / NULLIF(d.amount, 0))) as overhead_share,
+                SUM(dp.amount - dp.cost_price - (d.overhead * (dp.amount / NULLIF(d.amount, 0)))) as total_profit,
+                CASE 
+                    WHEN SUM(dp.amount) = 0 THEN 0 
+                    ELSE (SUM(dp.amount) - SUM(dp.cost_price) - SUM(d.overhead * (dp.amount / NULLIF(d.amount, 0)))) / SUM(dp.amount) 
+                END as margin
+            FROM demand_positions dp
+            JOIN demands d ON dp.demand_id = d.id
+            WHERE d.date BETWEEN %s AND %s
+            GROUP BY dp.product_name, dp.article, dp.code, d.store, d.project, d.sales_channel
+            ORDER BY total_amount DESC
+        """, (date_range.start_date, date_range.end_date))
+        
+        # Преобразуем данные
+        summary_data = []
+        for row in cur.fetchall():
+            summary_data.append([prepare_value(value) for value in row])
+        
+        conn.close()
+        
+        # Заголовки
+        summary_headers = [
+            "Товар", "Артикул", "Код", "Общее количество", "Склад", "Проект", 
+            "Канал продаж", "Средняя цена", "Сумма оплачиваемой доставки", 
+            "Общая сумма", "Себестоимость товара", "Сумма накладных расходов", 
+            "Общая прибыль", "Маржинальность"
+        ]
+        
+        # Добавляем заголовки
+        worksheet_summary.append_row(summary_headers)
+        
+        # Добавляем данные
+        if summary_data:
+            worksheet_summary.append_rows(summary_data)
+        
+        # Форматируем лист со сводным отчетом
+        last_summary_row = len(summary_data) + 1 if summary_data else 1
+        summary_requests = []
+        
+        # Форматирование заголовков
+        summary_requests.append({
+            "repeatCell": {
+                "range": {
+                    "sheetId": worksheet_summary.id,
+                    "startRowIndex": 0,
+                    "endRowIndex": 1
+                },
+                "cell": {"userEnteredFormat": SUMMARY_HEADER_STYLE},
+                "fields": "userEnteredFormat"
+            }
+        })
+        
+        # Форматирование данных
+        summary_requests.append({
+            "repeatCell": {
+                "range": {
+                    "sheetId": worksheet_summary.id,
+                    "startRowIndex": 1,
+                    "endRowIndex": last_summary_row
+                },
+                "cell": {"userEnteredFormat": PRODUCT_ROW_STYLE},
+                "fields": "userEnteredFormat"
+            }
+        })
+        
+        # Форматирование числовых столбцов
+        numeric_summary_columns = [3, 7, 8, 9, 10, 11, 12]  # Индексы столбцов с числами
+        percent_column = 13  # Маржинальность
+        
+        for col in numeric_summary_columns:
+            summary_requests.append({
+                "repeatCell": {
+                    "range": {
+                        "sheetId": worksheet_summary.id,
+                        "startRowIndex": 1,
+                        "endRowIndex": last_summary_row,
+                        "startColumnIndex": col,
+                        "endColumnIndex": col + 1
+                    },
+                    "cell": {"userEnteredFormat": NUMBER_FORMAT},
+                    "fields": "userEnteredFormat.numberFormat,userEnteredFormat.horizontalAlignment"
+                }
+            })
+        
+        # Форматирование столбца с маржинальностью
+        summary_requests.append({
+            "repeatCell": {
+                "range": {
+                    "sheetId": worksheet_summary.id,
+                    "startRowIndex": 1,
+                    "endRowIndex": last_summary_row,
+                    "startColumnIndex": percent_column,
+                    "endColumnIndex": percent_column + 1
+                },
+                "cell": {
+                    "userEnteredFormat": {
+                        "numberFormat": {"type": "PERCENT", "pattern": "0.00%"},
+                        "horizontalAlignment": "RIGHT"
+                    }
+                },
+                "fields": "userEnteredFormat.numberFormat,userEnteredFormat.horizontalAlignment"
+            }
+        })
+        
+        # Подсветка отрицательной маржинальности
+        summary_requests.append({
+            "addConditionalFormatRule": {
+                "rule": {
+                    "ranges": [{
+                        "sheetId": worksheet_summary.id,
+                        "startRowIndex": 1,
+                        "endRowIndex": last_summary_row,
+                        "startColumnIndex": percent_column,
+                        "endColumnIndex": percent_column + 1
+                    }],
+                    "booleanRule": {
+                        "condition": {
+                            "type": "NUMBER_LESS",
+                            "values": [{"userEnteredValue": "0"}]
+                        },
+                        "format": NEGATIVE_PROFIT_STYLE
+                    }
+                },
+                "index": 0
+            }
+        })
+        
+        # Установка ширины столбцов
+        summary_column_widths = [
+            {"pixelSize": 250},  # A: Товар
+            {"pixelSize": 100},  # B: Артикул
+            {"pixelSize": 80},   # C: Код
+            {"pixelSize": 110},  # D: Общее количество
+            {"pixelSize": 120},  # E: Склад
+            {"pixelSize": 120},  # F: Проект
+            {"pixelSize": 150},  # G: Канал продаж
+            {"pixelSize": 90},   # H: Средняя цена
+            {"pixelSize": 140},  # I: Сумма оплачиваемой доставки
+            {"pixelSize": 90},   # J: Общая сумма
+            {"pixelSize": 120},  # K: Себестоимость товара
+            {"pixelSize": 140},  # L: Сумма накладных расходов
+            {"pixelSize": 100},  # M: Общая прибыль
+            {"pixelSize": 100}   # N: Маржинальность
+        ]
+        
+        for i, width in enumerate(summary_column_widths):
+            summary_requests.append({
+                "updateDimensionProperties": {
+                    "range": {
+                        "sheetId": worksheet_summary.id,
+                        "dimension": "COLUMNS",
+                        "startIndex": i,
+                        "endIndex": i + 1
+                    },
+                    "properties": width,
+                    "fields": "pixelSize"
+                }
+            })
+        
+        # Добавляем итоговую строку
+        if summary_data:
+            # Формулы для суммирования
+            sum_formulas = [
+                "Общий итог:", "", "", 
+                f'=SUM(D2:D{last_summary_row})',
+                "", "", "",
+                f'=AVERAGE(H2:H{last_summary_row})',
+                f'=SUM(I2:I{last_summary_row})',
+                f'=SUM(J2:J{last_summary_row})',
+                f'=SUM(K2:K{last_summary_row})',
+                f'=SUM(L2:L{last_summary_row})',
+                f'=SUM(M2:M{last_summary_row})',
+                f'=IF(SUM(J2:J{last_summary_row})=0, 0, (SUM(J2:J{last_summary_row})-SUM(K2:K{last_summary_row})-SUM(L2:L{last_summary_row}))/SUM(J2:J{last_summary_row}))'
+            ]
+            
+            worksheet_summary.append_row(sum_formulas)
+            
+            # Форматирование итоговой строки
+            summary_requests.append({
+                "repeatCell": {
+                    "range": {
+                        "sheetId": worksheet_summary.id,
+                        "startRowIndex": last_summary_row,
+                        "endRowIndex": last_summary_row + 1
+                    },
+                    "cell": {"userEnteredFormat": TOTAL_ROW_STYLE},
+                    "fields": "userEnteredFormat"
+                }
+            })
+            
+            last_summary_row += 1
+        
+        # Фильтры и закрепление
+        summary_requests.extend([
+            {
+                "setBasicFilter": {
+                    "filter": {
+                        "range": {
+                            "sheetId": worksheet_summary.id,
+                            "startRowIndex": 0,
+                            "endRowIndex": last_summary_row,
+                            "startColumnIndex": 0,
+                            "endColumnIndex": 14
+                        }
+                    }
+                }
+            },
+            {
+                "updateSheetProperties": {
+                    "properties": {
+                        "sheetId": worksheet_summary.id,
+                        "gridProperties": {"frozenRowCount": 1}
+                    },
+                    "fields": "gridProperties.frozenRowCount"
+                }
+            }
+        ])
+        
         # Объединяем все запросы
-        all_requests = requests + demand_requests
+        all_requests = requests + demand_requests + summary_requests
         
         # Применяем все запросы
         sh.batch_update({"requests": all_requests})
         
-        # Устанавливаем порядок листов (товары первыми)
-        sh.reorder_worksheets([worksheet_positions, worksheet_demands])
+        # Устанавливаем порядок листов (товары первыми, затем отгрузки, затем сводный отчет)
+        sh.reorder_worksheets([worksheet_positions, worksheet_demands, worksheet_summary])
         
         logger.info(f"Таблица создана с оформлением как в Excel: {sh.url}")
         return {"url": sh.url}
