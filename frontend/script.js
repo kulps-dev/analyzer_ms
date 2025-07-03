@@ -36,6 +36,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Обработчик кнопки
+    // script.js (исправленный фрагмент)
     document.getElementById('export-excel-btn').addEventListener('click', async function() {
         const startDate = document.getElementById('start-date').value;
         const endDate = document.getElementById('end-date').value;
@@ -61,8 +62,18 @@ document.addEventListener('DOMContentLoaded', function() {
                 throw new Error(await response.text());
             }
 
-            const result = await response.json();
-            downloadExcel(result.file, result.filename);
+            // Получаем бинарные данные и создаем Blob
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            
+            // Создаем ссылку для скачивания
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `Отчет_${startDate}_по_${endDate}.xlsx`;
+            link.click();
+            
+            // Освобождаем ресурсы
+            URL.revokeObjectURL(url);
             
             showStatus('Данные успешно загружены', 'success');
             showAlert('Excel файл успешно сформирован', 'success');
