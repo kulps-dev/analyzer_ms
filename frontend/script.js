@@ -26,42 +26,16 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Функция для скачивания Excel
-    // Новая функция для скачивания бинарного Excel
-    async function downloadExcel(response, filename) {
-        try {
-            if (!response.ok) {
-                const error = await response.json().catch(() => response.text());
-                throw new Error(error.message || error || `HTTP error! status: ${response.status}`);
-            }
-    
-            const blob = await response.blob();
-            
-            // Verify blob is valid Excel file
-            if (blob.size === 0 || !blob.type.includes('spreadsheet')) {
-                throw new Error('Invalid file received from server');
-            }
-    
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename || 'report.xlsx';
-            document.body.appendChild(a);
-            a.click();
-            
-            // Cleanup
-            setTimeout(() => {
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-            }, 100);
-    
-        } catch (error) {
-            console.error('Download error:', error);
-            showAlert(`Ошибка при скачивании файла: ${error.message}`, 'error');
-            throw error;
-        }
+    function downloadExcel(hexData, filename) {
+        const bytes = new Uint8Array(hexData.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+        const blob = new Blob([bytes], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        link.click();
     }
 
-    // Обработчик кнопки "Экспорт в Excel"
+    // Обработчик кнопки
     document.getElementById('export-excel-btn').addEventListener('click', async function() {
         const startDate = document.getElementById('start-date').value;
         const endDate = document.getElementById('end-date').value;
@@ -87,17 +61,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 throw new Error(await response.text());
             }
 
-            // Получаем имя файла из заголовка Content-Disposition
-            const contentDisposition = response.headers.get('Content-Disposition');
-            let filename = 'report.xlsx';
-            if (contentDisposition) {
-                const matches = contentDisposition.match(/filename\*=UTF-8''(.+)/);
-                if (matches) {
-                    filename = decodeURIComponent(matches[1]);
-                }
-            }
-
-            await downloadExcel(response, filename);
+            const result = await response.json();
+            downloadExcel(result.file, result.filename);
             
             showStatus('Данные успешно загружены', 'success');
             showAlert('Excel файл успешно сформирован', 'success');
