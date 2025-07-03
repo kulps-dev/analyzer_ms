@@ -44,7 +44,7 @@ document.addEventListener('DOMContentLoaded', function() {
             showAlert('Пожалуйста, укажите период анализа', 'error');
             return;
         }
-
+    
         try {
             showStatus('Загрузка данных...', 'loading');
             
@@ -56,13 +56,20 @@ document.addEventListener('DOMContentLoaded', function() {
                     end_date: endDate + " 23:59:59"
                 })
             });
-
+    
             if (!response.ok) {
                 throw new Error(await response.text());
             }
-
-            const result = await response.json();
-            downloadExcel(result.file, result.filename);
+    
+            // Создаем blob из ответа и скачиваем
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Отчет_${startDate}_${endDate}.xlsx`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
             
             showStatus('Данные успешно загружены', 'success');
             showAlert('Excel файл успешно сформирован', 'success');

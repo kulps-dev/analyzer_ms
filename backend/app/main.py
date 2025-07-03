@@ -649,6 +649,7 @@ async def get_task_status(task_id: str):
 async def export_excel(date_range: DateRange):
     conn = None
     try:
+        logger.info(f"Starting Excel export for {date_range.start_date} to {date_range.end_date}")
         conn = get_db_connection()
         cur = conn.cursor()
         
@@ -665,12 +666,19 @@ async def export_excel(date_range: DateRange):
         wb.save(buffer)
         buffer.seek(0)
         
-        return {
-            "file": buffer.read().hex(),
-            "filename": f"Отчет_по_отгрузкам_{date_range.start_date}_по_{date_range.end_date}.xlsx"
-        }
+        # Логирование успешного создания файла
+        logger.info("Excel file created successfully")
+        
+        # Возвращаем файл как StreamingResponse
+        return StreamingResponse(
+            buffer,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename=Отчет_{date_range.start_date}_{date_range.end_date}.xlsx"}
+        )
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error during Excel export: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Ошибка формирования отчета: {str(e)}")
     finally:
         if conn:
             conn.close()
