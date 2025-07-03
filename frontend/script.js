@@ -29,26 +29,17 @@ document.addEventListener('DOMContentLoaded', function() {
     // Новая функция для скачивания бинарного Excel
     async function downloadExcel(response, filename) {
         try {
+            // Проверяем, что ответ успешный
             if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(errorText || `HTTP error! status: ${response.status}`);
+                throw new Error(`HTTP error! status: ${response.status}`);
             }
     
-            // Проверяем заголовок Content-Disposition
-            const contentDisposition = response.headers.get('Content-Disposition');
-            let finalFilename = filename;
-            
-            if (contentDisposition) {
-                const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/i) || 
-                                    contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
-                if (filenameMatch && filenameMatch[1]) {
-                    finalFilename = decodeURIComponent(filenameMatch[1]);
-                    console.log('Filename from header:', finalFilename);
-                }
-            }
+            // Получаем размер контента из заголовков
+            const contentLength = response.headers.get('Content-Length');
+            console.log(`Downloading Excel file, size: ${contentLength} bytes`);
     
             const blob = await response.blob();
-            console.log('Blob type:', blob.type, 'size:', blob.size);
+            console.log(`Blob size: ${blob.size} bytes, type: ${blob.type}`);
     
             if (blob.size === 0) {
                 throw new Error('Received empty file');
@@ -57,18 +48,19 @@ document.addEventListener('DOMContentLoaded', function() {
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = finalFilename;
+            a.download = filename || 'report.xlsx';
             document.body.appendChild(a);
             a.click();
     
+            // Очистка
             setTimeout(() => {
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
             }, 100);
     
         } catch (error) {
-            console.error('Error downloading Excel:', error);
-            showAlert(`Ошибка при скачивании файла: ${error.message}`, 'error');
+            console.error('Error downloading Excel file:', error);
+            showAlert('Ошибка при скачивании файла', 'error');
             throw error;
         }
     }
