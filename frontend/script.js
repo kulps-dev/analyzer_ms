@@ -28,15 +28,37 @@ document.addEventListener('DOMContentLoaded', function() {
     // Функция для скачивания Excel
     // Новая функция для скачивания бинарного Excel
     async function downloadExcel(response, filename) {
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename || 'report.xlsx';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        try {
+            if (!response.ok) {
+                const error = await response.json().catch(() => response.text());
+                throw new Error(error.message || error || `HTTP error! status: ${response.status}`);
+            }
+    
+            const blob = await response.blob();
+            
+            // Verify blob is valid Excel file
+            if (blob.size === 0 || !blob.type.includes('spreadsheet')) {
+                throw new Error('Invalid file received from server');
+            }
+    
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename || 'report.xlsx';
+            document.body.appendChild(a);
+            a.click();
+            
+            // Cleanup
+            setTimeout(() => {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }, 100);
+    
+        } catch (error) {
+            console.error('Download error:', error);
+            showAlert(`Ошибка при скачивании файла: ${error.message}`, 'error');
+            throw error;
+        }
     }
 
     // Обработчик кнопки "Экспорт в Excel"
