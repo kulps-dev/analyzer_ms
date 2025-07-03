@@ -651,36 +651,40 @@ async def get_task_status(task_id: str):
 async def export_excel(date_range: DateRange):
     conn = None
     try:
-        # Ваш код для получения данных из БД
+        logger.info(f"Starting Excel export for {date_range.start_date} to {date_range.end_date}")
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("SELECT * FROM demands WHERE date BETWEEN %s AND %s", 
-                   (date_range.start_date, date_range.end_date))
-        rows = cur.fetchall()
 
-        # Создаем Excel файл
+        # Создаем Excel
         wb = Workbook()
-        ws = wb.active
-        ws.append(["Номер", "Дата", "Сумма"])  # Заголовки
-        
-        for row in rows:
-            ws.append([row[0], row[1], row[2]])  # Данные
+        await create_demands_sheet(wb, cur, date_range)
+        await create_positions_sheet(wb, cur, date_range)
+        await create_summary_sheet(wb, cur, date_range)
 
         # Сохраняем в буфер
         buffer = io.BytesIO()
         wb.save(buffer)
-        buffer.seek(0)
+        buffer.seek(0)  # Важно: переводим указатель в начало!
+
+        # Формируем имя файла (убираем недопустимые символы)
+        filename = (
+            f"Отчет_{date_range.start_date.replace(':', '-').replace(' ', '_')}_"
+            f"по_{date_range.end_date.replace(':', '-').replace(' ', '_')}.xlsx"
+        )
 
         # Возвращаем файл
-        return Response(
-            content=buffer.getvalue(),
+        return StreamingResponse(
+            buffer,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": "attachment; filename=report.xlsx"}
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
+                "Access-Control-Expose-Headers": "Content-Disposition",  # Для CORS
+            },
         )
-        
+
     except Exception as e:
-        logger.error(f"Export error: {str(e)}")
-        return Response("Export failed", status_code=500)
+        logger.error(f"Excel export error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Ошибка при формировании Excel: {str(e)}")
     finally:
         if conn:
             conn.close()
