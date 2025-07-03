@@ -665,20 +665,22 @@ async def export_excel(date_range: DateRange):
         buffer = io.BytesIO()
         wb.save(buffer)
         buffer.seek(0)
+        file_content = buffer.getvalue()
+        logger.info(f"Generated Excel file size: {len(file_content)} bytes")
 
-        # Формируем имя файла (упрощенное, без специальных символов)
-        start_date_clean = date_range.start_date[:10].replace("-", "")
-        end_date_clean = date_range.end_date[:10].replace("-", "")
-        filename = f"report_{start_date_clean}_{end_date_clean}.xlsx"
+        # Формируем имя файла
+        start_date = datetime.strptime(date_range.start_date[:10], "%Y-%m-%d").strftime("%Y%m%d")
+        end_date = datetime.strptime(date_range.end_date[:10], "%Y-%m-%d").strftime("%Y%m%d")
+        filename = f"report_{start_date}_{end_date}.xlsx"
 
-        # Возвращаем файл с простым заголовком
-        return StreamingResponse(
-            buffer,
+        # Возвращаем файл
+        return Response(
+            content=file_content,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={
                 "Content-Disposition": f"attachment; filename={filename}",
-                "Access-Control-Expose-Headers": "Content-Disposition",
-            },
+                "Content-Length": str(len(file_content))
+            }
         )
 
     except Exception as e:
