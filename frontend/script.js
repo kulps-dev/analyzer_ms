@@ -27,7 +27,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Функция для скачивания Excel
     function downloadExcel(hexData, filename) {
-        const bytes = new Uint8Array(hexData.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+        const bytes = new Uint8Array(hexData.match(/.{1,2}/g).map(byte => parseInt(byte, 16));
         const blob = new Blob([bytes], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
@@ -35,7 +35,7 @@ document.addEventListener('DOMContentLoaded', function() {
         link.click();
     }
 
-    // Обработчик кнопки "Скачать Excel"
+    // Обработчик кнопки
     document.getElementById('export-excel-btn').addEventListener('click', async function() {
         const startDate = document.getElementById('start-date').value;
         const endDate = document.getElementById('end-date').value;
@@ -44,7 +44,7 @@ document.addEventListener('DOMContentLoaded', function() {
             showAlert('Пожалуйста, укажите период анализа', 'error');
             return;
         }
-    
+
         try {
             showStatus('Загрузка данных...', 'loading');
             
@@ -56,20 +56,13 @@ document.addEventListener('DOMContentLoaded', function() {
                     end_date: endDate + " 23:59:59"
                 })
             });
-    
+
             if (!response.ok) {
                 throw new Error(await response.text());
             }
-    
-            // Создаем blob из ответа и скачиваем
-            const blob = await response.blob();
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `Отчет_${startDate}_${endDate}.xlsx`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
+
+            const result = await response.json();
+            downloadExcel(result.file, result.filename);
             
             showStatus('Данные успешно загружены', 'success');
             showAlert('Excel файл успешно сформирован', 'success');

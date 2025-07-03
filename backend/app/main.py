@@ -23,6 +23,8 @@ from decimal import Decimal
 import json
 from fastapi import Response
 from fastapi.responses import StreamingResponse
+from urllib.parse import quote
+
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO)
