@@ -764,40 +764,129 @@ async def get_task_status(task_id: str):
 async def export_excel(date_range: DateRange):
     conn = None
     try:
-        logger.info(f"Starting Excel export for {date_range.start_date} to {date_range.end_date}")
         conn = get_db_connection()
         cur = conn.cursor()
-
-        # Создаем Excel
+        
+        # Получаем данные по отгрузкам
+        cur.execute("""
+            SELECT 
+                number, date, counterparty, store, project, sales_channel,
+                amount, cost_price, overhead, profit, promo_period, delivery_amount,
+                admin_data, gdeslon, cityads, ozon, ozon_fbs, yamarket_fbs,
+                yamarket_dbs, yandex_direct, price_ru, wildberries, gis2, seo,
+                programmatic, avito, multiorders, estimated_discount
+            FROM demands
+            WHERE date BETWEEN %s AND %s
+            ORDER BY date DESC
+        """, (date_range.start_date, date_range.end_date))
+        
+        demands_rows = cur.fetchall()
+        
+        # Получаем данные по товарам (из другой таблицы или запроса)
+        cur.execute("""
+            SELECT 
+                d.number, d.date, d.counterparty, d.store, d.project, d.sales_channel,
+                p.product_name, p.quantity, p.price, p.amount, p.cost_price,
+                p.article, p.code
+            FROM demand_positions p
+            JOIN demands d ON p.demand_id = d.id
+            WHERE d.date BETWEEN %s AND %s
+            ORDER BY d.date DESC, d.number
+        """, (date_range.start_date, date_range.end_date))
+        
+        products_rows = cur.fetchall()
+        
         wb = Workbook()
-        await create_demands_sheet(wb, cur, date_range)
-        await create_positions_sheet(wb, cur, date_range)
-        await create_summary_sheet(wb, cur, date_range)
-
-        # Сохраняем в буфер
+        
+        # Лист с отгрузками
+        ws_demands = wb.active
+        ws_demands.title = "Отчет по отгрузкам"
+        
+        # Заголовки для отгрузок
+        demands_headers = [
+            "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
+            "Сумма", "Себестоимость", "Накладные расходы", "Прибыль", "Акционный период",
+            "Сумма доставки", "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS",
+            "Яндекс Маркет FBS", "Яндекс Маркет DBS", "Яндекс Директ", "Price ru",
+            "Wildberries", "2Gis", "SEO", "Программатик", "Авито", "Мультиканальные заказы",
+            "Примерная скидка"
+        ]
+        
+        # Добавляем заголовки и данные для отгрузок
+        ws_demands.append(demands_headers)
+        for row in demands_rows:
+            ws_demands.append(row)
+        
+        # Лист с товарами
+        ws_products = wb.create_sheet("Отчет по товарам")
+        
+        # Заголовки для товаров
+        products_headers = [
+            "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
+            "Товар", "Количество", "Цена", "Сумма", "Себестоимость", "Артикул", "Код"
+        ]
+        
+        ws_products.append(products_headers)
+        
+        # Группируем товары по отгрузкам
+        current_shipment = None
+        for row in products_rows:
+            shipment_number = row[0]
+            
+            # Если это новая отгрузка, добавляем строку "Итого по отгрузке"
+            if shipment_number != current_shipment:
+                current_shipment = shipment_number
+                
+                # Получаем итоговые данные по отгрузке
+                cur.execute("""
+                    SELECT 
+                        number, date, counterparty, store, project, sales_channel,
+                        amount, cost_price
+                    FROM demands
+                    WHERE number = %s
+                """, (shipment_number,))
+                shipment_data = cur.fetchone()
+                
+                if shipment_data:
+                    # Добавляем строку "Итого по отгрузке"
+                    ws_products.append([
+                        shipment_data[0], shipment_data[1], shipment_data[2], shipment_data[3],
+                        shipment_data[4], shipment_data[5], "Итого по отгрузке:", "", "",
+                        shipment_data[6], shipment_data[7]
+                    ])
+            
+            # Добавляем данные по товару
+            ws_products.append(row)
+        
+        # Добавляем общий итог
+        ws_products.append(["Общий итог:", "", "", "", "", "", "", "", "",
+                          f"=SUM(J2:J{ws_products.max_row})", 
+                          f"=SUM(K2:K{ws_products.max_row})"])
+        
+        # Применяем форматирование к обоим листам
+        for ws in [ws_demands, ws_products]:
+            # Форматирование заголовков
+            for row in ws.iter_rows(min_row=1, max_row=1):
+                for cell in row:
+                    cell.font = Font(bold=True)
+                    cell.alignment = Alignment(horizontal='center')
+            
+            # Форматирование числовых данных
+            for row in ws.iter_rows(min_row=2):
+                for cell in row:
+                    if isinstance(cell.value, (int, float)):
+                        cell.number_format = '#,##0.00'
+        
         buffer = io.BytesIO()
         wb.save(buffer)
-        buffer.seek(0)  # Важно: переводим указатель в начало!
-
-        # Формируем имя файла (убираем недопустимые символы)
-        filename = (
-            f"Отчет_{date_range.start_date.replace(':', '-').replace(' ', '_')}_"
-            f"по_{date_range.end_date.replace(':', '-').replace(' ', '_')}.xlsx"
-        )
-
-        # Возвращаем файл
-        return StreamingResponse(
-            buffer,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={
-                "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
-                "Access-Control-Expose-Headers": "Content-Disposition",  # Для CORS
-            },
-        )
-
+        buffer.seek(0)
+        
+        return {
+            "file": buffer.read().hex(),
+            "filename": f"Отчет_по_отгрузкам_{date_range.start_date}_по_{date_range.end_date}.xlsx"
+        }
     except Exception as e:
-        logger.error(f"Excel export error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Ошибка при формировании Excel: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn:
             conn.close()
