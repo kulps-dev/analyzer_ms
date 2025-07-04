@@ -210,30 +210,29 @@ class MoyskladAPI:
             logger.error(f"Ошибка при получении себестоимости позиции: {str(e)}")
             return 0.0
 
-    def get_demand_cost_price(self, demand_id: str) -> float:
-        """Получить общую себестоимость отгрузки (сумма себестоимостей всех позиций)"""
-        url = f"{self.base_url}/report/stock/byoperation"
-        params = {
-            "operation.id": demand_id,
-            "limit": 1000
-        }
+def get_demand_cost_price(self, demand_id: str) -> float:
+    """Получить себестоимость отгрузки (сумма себестоимостей позиций)"""
+    url = f"{self.base_url}/report/stock/byoperation"
+    params = {
+        "operation.id": demand_id,
+        "limit": 1000
+    }
+    
+    try:
+        response = self._make_request("GET", url, params=params)
+        data = response.json()
         
-        try:
-            response = self._make_request("GET", url, params=params)
-            data = response.json()
-            
-            total_cost = 0.0
-            if "rows" in data and len(data["rows"]) > 0:
-                for position in data["rows"][0].get("positions", []):
-                    cost = float(position.get("cost", 0)) / 100  # Переводим в рубли
-                    quantity = float(position.get("quantity", 1))
-                    total_cost += cost
-            
-            return total_cost
+        total_cost = 0
+        if "rows" in data and len(data["rows"]) > 0:
+            for position in data["rows"][0].get("positions", []):
+                cost = position.get("cost", 0)
+                quantity = position.get("quantity", 1)
+                total_cost += cost * quantity  # Умножаем на количество
         
-        except Exception as e:
-            logger.error(f"Ошибка при получении себестоимости для отгрузки {demand_id}: {str(e)}")
-            return 0.0
+        return total_cost / 100  # Переводим в рубли
+    except Exception as e:
+        logger.error(f"Ошибка при получении себестоимости для отгрузки {demand_id}: {str(e)}")
+        return 0
 
     def _enrich_demand_data_batch(self, demands: List[Dict[str, Any]]):
         """Пакетное обогащение данных отгрузок"""
