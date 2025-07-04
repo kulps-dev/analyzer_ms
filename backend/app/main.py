@@ -68,20 +68,22 @@ class BatchProcessResponse(BaseModel):
 class WebhookEventMeta(BaseModel):
     href: str
     type: str
-    mediaType: str
+    mediaType: Optional[str] = None  # Делаем поле необязательным
 
 class WebhookEvent(BaseModel):
     meta: WebhookEventMeta
     action: str
+    accountId: Optional[str] = None
 
 class WebhookAuditContext(BaseModel):
     meta: Dict[str, Any]
     uid: str
+    moment: str
 
 class WebhookData(BaseModel):
     events: List[WebhookEvent]
     auditContext: Dict[str, Any]
-    updated: Optional[str] = Field(None)  # Делаем поле необязательным
+    updated: Optional[str] = None  # Делаем поле необязательным
 
 # Глобальный словарь для хранения статусов задач
 tasks_status = {}
@@ -2178,22 +2180,34 @@ async def export_to_gsheet(date_range: DateRange):
 async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
     """Обработчик вебхуков от МойСклад"""
     try:
-        # Получаем и логируем сырые данные вебхука для отладки
+        # Получаем и логируем сырые данные вебхука
         raw_data = await request.json()
-        logger.info(f"Получен вебхук: {raw_data}")
+        logger.info(f"Получен вебхук: {json.dumps(raw_data, indent=2)}")
         
-        # Парсим данные с более гибкой валидацией
+        # Пробуем распарсить данные
         try:
             webhook_data = WebhookData(**raw_data)
         except Exception as e:
-            logger.error(f"Ошибка валидации вебхука: {str(e)}. Данные: {raw_data}")
-            # Попробуем обработать даже если валидация не прошла полностью
-            if not isinstance(raw_data, dict) or 'events' not in raw_data:
-                raise HTTPException(status_code=400, detail="Invalid webhook format")
+            logger.warning(f"Частичная ошибка валидации вебхука: {str(e)}")
+            # Создаем объект вручную для основных полей
+            events = []
+            for event in raw_data.get('events', []):
+                try:
+                    events.append(WebhookEvent(
+                        meta=WebhookEventMeta(
+                            href=event['meta']['href'],
+                            type=event['meta']['type'],
+                            mediaType=event['meta'].get('mediaType')
+                        ),
+                        action=event['action'],
+                        accountId=event.get('accountId')
+                    ))
+                except KeyError as ke:
+                    logger.error(f"Ошибка парсинга события: {str(ke)}")
+                    continue
             
-            # Создаем объект вручную
             webhook_data = WebhookData(
-                events=raw_data.get('events', []),
+                events=events,
                 auditContext=raw_data.get('auditContext', {}),
                 updated=raw_data.get('updated')
             )
@@ -2216,5 +2230,5 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
         return {"status": "success", "message": "Webhook processed"}
     
     except Exception as e:
-        logger.error(f"Ошибка обработки вебхука: {str(e)}", exc_info=True)
+        logger.error(f"Критическая ошибка обработки вебхука: {str(e)}", exc_info=True)
         raise HTTPException(status_code=400, detail=str(e))
