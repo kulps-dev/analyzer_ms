@@ -102,9 +102,9 @@ def init_db():
                 WHERE table_name = 'demands'
             )
         """)
-        demands_exists = cur.fetchone()[0]
+        table_exists = cur.fetchone()[0]
         
-        if not demands_exists:
+        if not table_exists:
             cur.execute("""
                 CREATE TABLE demands (
                     id VARCHAR(255) PRIMARY KEY,
@@ -140,7 +140,6 @@ def init_db():
                     comment VARCHAR(255)
                 )
             """)
-            logger.info("Таблица demands успешно создана")
         
         # Проверяем существование таблицы demand_positions
         cur.execute("""
@@ -149,51 +148,25 @@ def init_db():
                 WHERE table_name = 'demand_positions'
             )
         """)
-        positions_exists = cur.fetchone()[0]
+        table_exists = cur.fetchone()[0]
         
-        if not positions_exists:
+        if not table_exists:
             cur.execute("""
                 CREATE TABLE demand_positions (
-                    id VARCHAR(255) PRIMARY KEY,
+                    id SERIAL PRIMARY KEY,
                     demand_id VARCHAR(255) REFERENCES demands(id),
-                    demand_number VARCHAR(50),
-                    date TIMESTAMP,
-                    counterparty VARCHAR(255),
-                    store VARCHAR(255),
-                    project VARCHAR(255),
-                    sales_channel VARCHAR(255),
                     product_name VARCHAR(255),
                     quantity NUMERIC(15, 3),
                     price NUMERIC(15, 2),
-                    amount NUMERIC(15, 2),
+                    sum NUMERIC(15, 2),
                     cost_price NUMERIC(15, 2),
                     article VARCHAR(100),
-                    code VARCHAR(100),
-                    overhead NUMERIC(15, 2),
-                    profit NUMERIC(15, 2),
-                    promo_period VARCHAR(255),
-                    delivery_amount NUMERIC(15, 2),
-                    admin_data NUMERIC(15, 2),
-                    gdeslon NUMERIC(15, 2),
-                    cityads NUMERIC(15, 2),
-                    ozon NUMERIC(15, 2),
-                    ozon_fbs NUMERIC(15, 2),
-                    yamarket_fbs NUMERIC(15, 2),
-                    yamarket_dbs NUMERIC(15, 2),
-                    yandex_direct NUMERIC(15, 2),
-                    price_ru NUMERIC(15, 2),
-                    wildberries NUMERIC(15, 2),
-                    gis2 NUMERIC(15, 2),
-                    seo NUMERIC(15, 2),
-                    programmatic NUMERIC(15, 2),
-                    avito NUMERIC(15, 2),
-                    multiorders NUMERIC(15, 2),
-                    estimated_discount NUMERIC(15, 2)
+                    code VARCHAR(100)
                 )
             """)
-            logger.info("Таблица demand_positions успешно создана")
         
         conn.commit()
+        logger.info("Таблицы успешно созданы")
         
     except Exception as e:
         logger.error(f"Ошибка при инициализации базы данных: {str(e)}")
@@ -222,35 +195,40 @@ async def process_demands_batch(demands: List[Dict[str, Any]], task_id: str):
         
         logger.info(f"Начало обработки {total_count} отгрузок")
         
-        demands_batch = []
-        positions_batch = []
+        batch_values = []
+        position_batch = []
         
         for idx, demand in enumerate(demands, 1):
             try:
-                # Подготовка данных отгрузки
-                demand_values = prepare_demand_data(demand)
-                demands_batch.append(demand_values)
+                values = prepare_demand_data(demand)
+                batch_values.append(values)
                 
-                # Подготовка данных позиций
-                positions = demand.get("positions", [])
-                for position in positions:
-                    position_values = prepare_position_data(demand, position)
-                    positions_batch.append(position_values)
+                # Сохраняем позиции
+                for pos in demand.get("positions", []):
+                    position_batch.append({
+                        "demand_id": demand["id"],
+                        "product_name": pos.get("product_name", ""),
+                        "quantity": pos.get("quantity", 0),
+                        "price": float(pos.get("price", 0)) / 100,
+                        "sum": float(pos.get("sum", 0)) / 100,
+                        "cost_price": moysklad.get_position_cost_price(pos),
+                        "article": pos.get("article", ""),
+                        "code": pos.get("code", "")
+                    })
                 
-                if len(demands_batch) >= batch_size:
-                    # Вставляем отгрузки
-                    inserted_demands = await insert_demands_batch(cur, demands_batch)
-                    saved_count += inserted_demands
+                if len(batch_values) >= batch_size:
+                    inserted = await insert_batch(cur, batch_values)
+                    saved_count += inserted
                     
                     # Вставляем позиции
-                    await insert_positions_batch(cur, positions_batch)
+                    if position_batch:
+                        await insert_positions_batch(cur, position_batch)
+                        position_batch = []
                     
-                    demands_batch = []
-                    positions_batch = []
+                    batch_values = []
                     
                     # Обновляем статус задачи
                     if idx % 100 == 0:
-                        logger.info(f"Обработано {idx}/{total_count} записей")
                         tasks_status[task_id] = {
                             "status": "processing",
                             "progress": f"{saved_count}/{total_count}",
@@ -264,10 +242,10 @@ async def process_demands_batch(demands: List[Dict[str, Any]], task_id: str):
                 continue
         
         # Вставляем оставшиеся записи
-        if demands_batch:
-            saved_count += await insert_demands_batch(cur, demands_batch)
-        if positions_batch:
-            await insert_positions_batch(cur, positions_batch)
+        if batch_values:
+            saved_count += await insert_batch(cur, batch_values)
+        if position_batch:
+            await insert_positions_batch(cur, position_batch)
         
         conn.commit()
         logger.info(f"Успешно сохранено {saved_count} из {total_count} записей")
@@ -348,65 +326,21 @@ async def insert_demands_batch(cur, batch_values: List[Dict[str, Any]]) -> int:
         logger.error(f"Ошибка при массовой вставке отгрузок: {str(e)}")
         return 0
 
-async def insert_positions_batch(cur, batch_values: List[Dict[str, Any]]) -> int:
-    """Массовая вставка пакета данных позиций"""
+async def insert_positions_batch(cur, batch_values: List[Dict[str, Any]]):
+    """Массовая вставка пакета позиций"""
     try:
         query = """
             INSERT INTO demand_positions (
-                id, demand_id, demand_number, date, counterparty, store, project, sales_channel,
-                product_name, quantity, price, amount, cost_price, article, code, overhead, profit,
-                promo_period, delivery_amount, admin_data, gdeslon, cityads, ozon, ozon_fbs,
-                yamarket_fbs, yamarket_dbs, yandex_direct, price_ru, wildberries, gis2, seo,
-                programmatic, avito, multiorders, estimated_discount
+                demand_id, product_name, quantity, price, sum, cost_price, article, code
             ) VALUES (
-                %(id)s, %(demand_id)s, %(demand_number)s, %(date)s, %(counterparty)s, %(store)s, %(project)s, %(sales_channel)s,
-                %(product_name)s, %(quantity)s, %(price)s, %(amount)s, %(cost_price)s, %(article)s, %(code)s, %(overhead)s, %(profit)s,
-                %(promo_period)s, %(delivery_amount)s, %(admin_data)s, %(gdeslon)s, %(cityads)s, %(ozon)s, %(ozon_fbs)s,
-                %(yamarket_fbs)s, %(yamarket_dbs)s, %(yandex_direct)s, %(price_ru)s, %(wildberries)s, %(gis2)s, %(seo)s,
-                %(programmatic)s, %(avito)s, %(multiorders)s, %(estimated_discount)s
+                %(demand_id)s, %(product_name)s, %(quantity)s, %(price)s, 
+                %(sum)s, %(cost_price)s, %(article)s, %(code)s
             )
-            ON CONFLICT (id) DO UPDATE SET
-                demand_id = EXCLUDED.demand_id,
-                demand_number = EXCLUDED.demand_number,
-                date = EXCLUDED.date,
-                counterparty = EXCLUDED.counterparty,
-                store = EXCLUDED.store,
-                project = EXCLUDED.project,
-                sales_channel = EXCLUDED.sales_channel,
-                product_name = EXCLUDED.product_name,
-                quantity = EXCLUDED.quantity,
-                price = EXCLUDED.price,
-                amount = EXCLUDED.amount,
-                cost_price = EXCLUDED.cost_price,
-                article = EXCLUDED.article,
-                code = EXCLUDED.code,
-                overhead = EXCLUDED.overhead,
-                profit = EXCLUDED.profit,
-                promo_period = EXCLUDED.promo_period,
-                delivery_amount = EXCLUDED.delivery_amount,
-                admin_data = EXCLUDED.admin_data,
-                gdeslon = EXCLUDED.gdeslon,
-                cityads = EXCLUDED.cityads,
-                ozon = EXCLUDED.ozon,
-                ozon_fbs = EXCLUDED.ozon_fbs,
-                yamarket_fbs = EXCLUDED.yamarket_fbs,
-                yamarket_dbs = EXCLUDED.yamarket_dbs,
-                yandex_direct = EXCLUDED.yandex_direct,
-                price_ru = EXCLUDED.price_ru,
-                wildberries = EXCLUDED.wildberries,
-                gis2 = EXCLUDED.gis2,
-                seo = EXCLUDED.seo,
-                programmatic = EXCLUDED.programmatic,
-                avito = EXCLUDED.avito,
-                multiorders = EXCLUDED.multiorders,
-                estimated_discount = EXCLUDED.estimated_discount
         """
-        
         execute_batch(cur, query, batch_values)
         return len(batch_values)
-    
     except Exception as e:
-        logger.error(f"Ошибка при массовой вставке позиций: {str(e)}")
+        logger.error(f"Ошибка при вставке позиций: {str(e)}")
         return 0
 
 async def process_demand(demand_id: str, action: str):
@@ -797,40 +731,174 @@ async def get_task_status(task_id: str):
 async def export_excel(date_range: DateRange):
     conn = None
     try:
-        logger.info(f"Starting Excel export for {date_range.start_date} to {date_range.end_date}")
         conn = get_db_connection()
         cur = conn.cursor()
-
-        # Создаем Excel
+        
+        # Получаем данные отгрузок
+        cur.execute("""
+            SELECT 
+                id, number, date, counterparty, store, project, sales_channel,
+                amount, cost_price, overhead, profit, promo_period, delivery_amount,
+                admin_data, gdeslon, cityads, ozon, ozon_fbs, yamarket_fbs,
+                yamarket_dbs, yandex_direct, price_ru, wildberries, gis2, seo,
+                programmatic, avito, multiorders, estimated_discount
+            FROM demands
+            WHERE date BETWEEN %s AND %s
+            ORDER BY date DESC
+        """, (date_range.start_date, date_range.end_date))
+        
+        demands = cur.fetchall()
+        
+        # Получаем позиции для каждой отгрузки
+        demand_positions = {}
+        for demand in demands:
+            demand_id = demand[0]
+            cur.execute("""
+                SELECT 
+                    product_name, quantity, price, sum, cost_price, article, code
+                FROM demand_positions
+                WHERE demand_id = %s
+            """, (demand_id,))
+            positions = cur.fetchall()
+            demand_positions[demand_id] = positions
+        
         wb = Workbook()
-        await create_demands_sheet(wb, cur, date_range)
-        await create_positions_sheet(wb, cur, date_range)
-        await create_summary_sheet(wb, cur, date_range)
-
-        # Сохраняем в буфер
+        
+        # 1. Лист "Отчет по отгрузкам"
+        ws_demands = wb.active
+        ws_demands.title = "Отчет по отгрузкам"
+        
+        # Заголовки столбцов
+        headers = [
+            "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
+            "Сумма", "Себестоимость", "Накладные расходы", "Прибыль", "Акционный период",
+            "Сумма доставки", "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS",
+            "Яндекс Маркет FBS", "Яндекс Маркет DBS", "Яндекс Директ", "Price ru",
+            "Wildberries", "2Gis", "SEO", "Программатик", "Авито", "Мультиканальные заказы",
+            "Примерная скидка"
+        ]
+        
+        ws_demands.append(headers)
+        
+        # Стили для оформления
+        from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+        from openpyxl.utils import get_column_letter
+        
+        # Форматирование заголовков
+        header_font = Font(name='Calibri', bold=True, size=12, color='FFFFFF')
+        header_fill = PatternFill(start_color='4F81BD', end_color='4F81BD', fill_type='solid')
+        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'),
+                          top=Side(style='thin'), bottom=Side(style='thin'))
+        
+        for col in range(1, len(headers) + 1):
+            cell = ws_demands.cell(row=1, column=col)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.border = thin_border
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            ws_demands.column_dimensions[get_column_letter(col)].width = max(15, len(headers[col-1]) * 1.2)
+        
+        # Заполняем данные
+        numeric_columns = [7, 8, 9, 10, 12] + list(range(13, 29))
+        for row_idx, demand in enumerate(demands, start=2):
+            for col_idx, value in enumerate(demand[1:], start=1):  # Пропускаем id (первый элемент)
+                cell = ws_demands.cell(row=row_idx, column=col_idx, value=value)
+                
+                if col_idx in numeric_columns:
+                    cell.number_format = '#,##0.00'
+                    cell.alignment = Alignment(horizontal='right', vertical='center')
+                elif col_idx == 2:  # Дата
+                    cell.number_format = 'DD.MM.YYYY'
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                else:
+                    cell.alignment = Alignment(horizontal='left', vertical='center')
+                
+                cell.border = thin_border
+        
+        # 2. Лист "Отчет по товарам"
+        ws_products = wb.create_sheet("Отчет по товарам")
+        
+        product_headers = [
+            "Номер отгрузки", "Дата", "Контрагент", "Склад", "Проект", "Канал продаж",
+            "Товар", "Количество", "Цена", "Сумма", "Себестоимость", "Артикул", "Код",
+            "Накладные расходы", "Прибыль", "Акционный период", "Сумма доставки",
+            "Адмидат", "ГдеСлон", "CityAds", "Ozon", "Ozon FBS", "Яндекс Маркет FBS",
+            "Яндекс Маркет DBS", "Яндекс Директ", "Price ru", "Wildberries", "2Gis",
+            "SEO", "Программатик", "Авито", "Мультиканальные заказы", "Примерная скидка"
+        ]
+        
+        ws_products.append(product_headers)
+        
+        # Форматирование заголовков
+        for col in range(1, len(product_headers) + 1):
+            cell = ws_products.cell(row=1, column=col)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.border = thin_border
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            ws_products.column_dimensions[get_column_letter(col)].width = max(15, len(product_headers[col-1]) * 1.2)
+        
+        # Заполняем данные по товарам
+        for demand in demands:
+            demand_id = demand[0]
+            positions = demand_positions.get(demand_id, [])
+            
+            if positions:
+                # Добавляем строку "Итого по отгрузке"
+                ws_products.append([
+                    demand[1],  # Номер отгрузки
+                    demand[2],  # Дата
+                    demand[3],  # Контрагент
+                    demand[4],  # Склад
+                    demand[5],  # Проект
+                    demand[6],  # Канал продаж
+                    "Итого по отгрузке:",
+                    "",  # Количество
+                    "",  # Цена
+                    demand[7],  # Сумма
+                    demand[8],  # Себестоимость
+                    "",  # Артикул
+                    "",  # Код
+                    demand[9],  # Накладные расходы
+                    demand[10],  # Прибыль
+                    demand[11],  # Акционный период
+                    demand[12],  # Сумма доставки
+                    *demand[13:28]  # Остальные поля
+                ])
+                
+                # Добавляем позиции
+                for pos in positions:
+                    ws_products.append([
+                        demand[1],  # Номер отгрузки
+                        demand[2],  # Дата
+                        demand[3],  # Контрагент
+                        demand[4],  # Склад
+                        demand[5],  # Проект
+                        demand[6],  # Канал продаж
+                        pos[0],  # Товар
+                        pos[1],  # Количество
+                        pos[2],  # Цена
+                        pos[3],  # Сумма
+                        pos[4],  # Себестоимость
+                        pos[5],  # Артикул
+                        pos[6],  # Код
+                        "",  # Накладные расходы
+                        "",  # Прибыль
+                        "",  # Акционный период
+                        "",  # Сумма доставки
+                        *[""] * 15  # Остальные поля
+                    ])
+        
         buffer = io.BytesIO()
         wb.save(buffer)
-        buffer.seek(0)  # Важно: переводим указатель в начало!
-
-        # Формируем имя файла (убираем недопустимые символы)
-        filename = (
-            f"Отчет_{date_range.start_date.replace(':', '-').replace(' ', '_')}_"
-            f"по_{date_range.end_date.replace(':', '-').replace(' ', '_')}.xlsx"
-        )
-
-        # Возвращаем файл
-        return StreamingResponse(
-            buffer,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={
-                "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
-                "Access-Control-Expose-Headers": "Content-Disposition",  # Для CORS
-            },
-        )
-
+        buffer.seek(0)
+        
+        return {
+            "file": buffer.read().hex(),
+            "filename": f"Отчет_по_отгрузкам_{date_range.start_date}_по_{date_range.end_date}.xlsx"
+        }
     except Exception as e:
-        logger.error(f"Excel export error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Ошибка при формировании Excel: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn:
             conn.close()
