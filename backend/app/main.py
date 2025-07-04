@@ -576,12 +576,12 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
     demand_id = str(demand.get("id", ""))
     attributes = demand.get("attributes", [])
     
-    # Получаем себестоимость позиции (уже в рублях)
-    cost_price = position.get("cost_price", 0.0)
+    # Получаем себестоимость позиции (в копейках, переводим в рубли)
+    cost_price = float(position.get("costPrice", 0)) / 100  # Конвертируем из копеек в рубли
     
     # Количество и цена
     quantity = float(position.get("quantity", 0))
-    price = float(position.get("price", 0)) / 100
+    price = float(position.get("price", 0)) / 100  # Конвертируем из копеек в рубли
     amount = quantity * price
     
     # Накладные расходы (overhead) из данных отгрузки
@@ -602,13 +602,13 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
         "store": str(demand.get("store", {}).get("name", ""))[:255],
         "project": str(demand.get("project", {}).get("name", "Без проекта"))[:255],
         "sales_channel": str(demand.get("salesChannel", {}).get("name", "Без канала"))[:255],
-        "product_name": str(position.get("product_name", ""))[:255],
+        "product_name": str(position.get("assortment", {}).get("name", ""))[:255],
         "quantity": quantity,
         "price": price,
         "amount": amount,
-        "cost_price": cost_price,  # Себестоимость позиции
-        "article": str(position.get("article", ""))[:100],
-        "code": str(position.get("code", ""))[:100],
+        "cost_price": cost_price,  # Себестоимость позиции (уже в рублях)
+        "article": str(position.get("assortment", {}).get("article", ""))[:100],
+        "code": str(position.get("assortment", {}).get("code", ""))[:100],
         "overhead": overhead_share,
         "profit": amount - cost_price - overhead_share,
         "promo_period": "",
@@ -631,7 +631,7 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
         "estimated_discount": 0
     }
 
-    # Обработка атрибутов
+    # Остальной код функции остается без изменений
     attr_fields = {
         "promo_period": ("Акционный период", ""),
         "delivery_amount": ("Сумма доставки", 0),
