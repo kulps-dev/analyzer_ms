@@ -137,7 +137,7 @@ class MoyskladAPI:
             positions = self.get_paginated_data(url)
             logger.info(f"Получено {len(positions)} позиций для отгрузки {demand_id}")
             
-            # Обогащаем данные о товарах и получаем себестоимость
+            # Обогащаем данные о товарах
             for position in positions:
                 if "assortment" in position:
                     product_url = position["assortment"]["meta"]["href"]
@@ -147,43 +147,71 @@ class MoyskladAPI:
                         position["product_name"] = product_data.get("name", "")
                         position["article"] = product_data.get("article", "")
                         position["code"] = product_data.get("code", "")
-                        
-                        # Добавляем себестоимость (в копейках)
-                        position["cost_price"] = float(product_data.get("costPrice", {}).get("value", 0))
                     except Exception as e:
                         logger.warning(f"Ошибка при получении данных товара: {str(e)}")
                         position["product_name"] = ""
                         position["article"] = ""
                         position["code"] = ""
-                        position["cost_price"] = 0
-                
+            
             return positions
-        
+            
         except Exception as e:
             logger.error(f"Ошибка при получении позиций отгрузки {demand_id}: {str(e)}")
-            raise
+            return []
+
+    def _get_positions_cost_data(self, demand_id: str) -> Dict[str, float]:
+        """Получаем себестоимости всех позиций отгрузки"""
+        url = f"{self.base_url}/report/stock/byoperation"
+        params = {"operation.id": demand_id, "limit": 1000}
+        
+        try:
+            response = self._make_request("GET", url, params=params)
+            data = response.json()
+            cost_data = {}
+            
+            if "rows" in data and len(data["rows"]) > 0:
+                for position in data["rows"][0].get("positions", []):
+                    if "cost" in position:
+                        # Получаем ID товара из meta.href
+                        meta_href = position.get("meta", {}).get("href", "")
+                        if not meta_href:
+                            continue
+                        
+                        # Извлекаем ID товара (а не позиции)
+                        product_id = meta_href.split("/")[-1]
+                        cost_data[product_id] = float(position["cost"])
+            
+            return cost_data
+        
+        except Exception as e:
+            logger.error(f"Ошибка при получении себестоимостей позиций: {str(e)}")
+            return {}
 
     def get_position_cost_price(self, position: Dict[str, Any]) -> float:
-        """Получить себестоимость позиции"""
+        """Получить себестоимость позиции (с учетом количества)"""
         try:
             # Если в позиции есть информация о себестоимости
             if "cost" in position:
-                return float(position.get("cost", 0)) / 100
+                cost_per_unit = float(position.get("cost", 0)) / 100
+                quantity = float(position.get("quantity", 1))
+                return cost_per_unit
             
-            # Если нет, делаем запрос к API
+            # Если нет, делаем запрос к API для получения себестоимости товара
             if "assortment" in position:
                 product_url = position["assortment"]["meta"]["href"]
                 response = self._make_request("GET", product_url)
                 product_data = response.json()
-                return float(product_data.get("costPrice", {}).get("value", 0)) / 100
+                cost_per_unit = float(product_data.get("costPrice", {}).get("value", 0)) / 100
+                quantity = float(position.get("quantity", 1))
+                return cost_per_unit
             
-            return 0
+            return 0.0
         except Exception as e:
             logger.error(f"Ошибка при получении себестоимости позиции: {str(e)}")
-            return 0
+            return 0.0
 
     def get_demand_cost_price(self, demand_id: str) -> float:
-        """Получить себестоимость отгрузки (сумма себестоимостей позиций)"""
+        """Получить общую себестоимость отгрузки (сумма себестоимостей всех позиций)"""
         url = f"{self.base_url}/report/stock/byoperation"
         params = {
             "operation.id": demand_id,
@@ -194,18 +222,18 @@ class MoyskladAPI:
             response = self._make_request("GET", url, params=params)
             data = response.json()
             
-            total_cost = 0
+            total_cost = 0.0
             if "rows" in data and len(data["rows"]) > 0:
                 for position in data["rows"][0].get("positions", []):
-                    cost = position.get("cost", 0)
-                    quantity = position.get("quantity", 1)
+                    cost = float(position.get("cost", 0)) / 100  # Переводим в рубли
+                    quantity = float(position.get("quantity", 1))
                     total_cost += cost
             
-            return total_cost / 100  # Переводим в рубли
+            return total_cost
         
         except Exception as e:
             logger.error(f"Ошибка при получении себестоимости для отгрузки {demand_id}: {str(e)}")
-            return 0
+            return 0.0
 
     def _enrich_demand_data_batch(self, demands: List[Dict[str, Any]]):
         """Пакетное обогащение данных отгрузок"""
@@ -261,3 +289,13 @@ class MoyskladAPI:
 
         except Exception as e:
             logger.error(f"Ошибка при пакетном обогащении данных: {str(e)}")
+    
+    def get_demand_by_id(self, demand_id: str) -> Dict[str, Any]:
+        """Получает данные отгрузки по ID"""
+        url = f"{self.base_url}/entity/demand/{demand_id}"
+        try:
+            response = self._make_request("GET", url)
+            return response.json()
+        except Exception as e:
+            logger.error(f"Ошибка при получении отгрузки {demand_id}: {str(e)}")
+            return None

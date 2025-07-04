@@ -459,41 +459,8 @@ def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
     """Подготовка данных отгрузки для вставки в БД"""
     demand_id = str(demand.get("id", ""))
     attributes = demand.get("attributes", [])
-
-    # Логирование для отладки
-    logger.info(f"Обработка отгрузки ID: {demand_id}")
-    logger.info(f"Данные agent: {demand.get('agent', {})}")
-    logger.info(f"Данные store: {demand.get('store', {})}")
-    logger.info(f"Данные project: {demand.get('project', {})}")
-    logger.info(f"Данные salesChannel: {demand.get('salesChannel', {})}")
     
-    # Функция для безопасного получения имени из метаданных
-    def get_name_from_meta(meta_data: Dict[str, Any]) -> str:
-        if not meta_data:
-            return ""
-        
-        # Если имя уже есть в данных, возвращаем его
-        if 'name' in meta_data:
-            return str(meta_data['name'])
-        
-        # Если есть ссылка, делаем запрос к API
-        if 'href' in meta_data.get('meta', {}):
-            try:
-                entity = moysklad.get_entity_by_href(meta_data['meta']['href'])
-                return str(entity.get('name', ''))
-            except Exception as e:
-                logger.error(f"Ошибка при получении имени по ссылке {meta_data['meta']['href']}: {str(e)}")
-                return ""
-        
-        return ""
-
-    # Получаем основные данные
-    agent = get_name_from_meta(demand.get("agent", {}))
-    store = get_name_from_meta(demand.get("store", {}))
-    project = get_name_from_meta(demand.get("project", {}))
-    sales_channel = get_name_from_meta(demand.get("salesChannel", {}))
-    
-    # Обработка накладных расходов
+    # Обработка накладных расходов (overhead)
     overhead_data = demand.get("overhead", {})
     overhead_sum = float(overhead_data.get("sum", 0)) / 100
     
@@ -507,10 +474,10 @@ def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
         "id": demand_id[:255],
         "number": str(demand.get("name", ""))[:50],
         "date": demand.get("moment", ""),
-        "counterparty": agent[:255] if agent else "",
-        "store": store[:255] if store else "",
-        "project": project[:255] if project else "Без проекта",
-        "sales_channel": sales_channel[:255] if sales_channel else "Без канала",
+        "counterparty": str(demand.get("agent", {}).get("name", ""))[:255],
+        "store": str(demand.get("store", {}).get("name", ""))[:255],
+        "project": str(demand.get("project", {}).get("name", "Без проекта"))[:255],
+        "sales_channel": str(demand.get("salesChannel", {}).get("name", "Без канала"))[:255],
         "amount": demand_sum,
         "cost_price": cost_price,
         "overhead": overhead_sum,
@@ -537,7 +504,7 @@ def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
         "estimated_discount": 0
     }
 
-    # Остальной код функции остается без изменений
+    # Обработка атрибутов
     attr_fields = {
         "promo_period": ("Акционный период", ""),
         "delivery_amount": ("Сумма доставки", 0),
@@ -576,12 +543,12 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
     demand_id = str(demand.get("id", ""))
     attributes = demand.get("attributes", [])
     
-    # Получаем себестоимость позиции (в копейках, переводим в рубли)
-    cost_price = float(position.get("cost_price", 0)) / 100
+    # Получаем себестоимость позиции (уже в рублях)
+    cost_price = position.get("cost_price", 0.0)
     
     # Количество и цена
     quantity = float(position.get("quantity", 0))
-    price = float(position.get("price", 0)) / 100  # Конвертируем из копеек в рубли
+    price = float(position.get("price", 0)) / 100
     amount = quantity * price
     
     # Накладные расходы (overhead) из данных отгрузки
@@ -602,13 +569,13 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
         "store": str(demand.get("store", {}).get("name", ""))[:255],
         "project": str(demand.get("project", {}).get("name", "Без проекта"))[:255],
         "sales_channel": str(demand.get("salesChannel", {}).get("name", "Без канала"))[:255],
-        "product_name": str(position.get("assortment", {}).get("name", ""))[:255],
+        "product_name": str(position.get("product_name", ""))[:255],
         "quantity": quantity,
         "price": price,
         "amount": amount,
-        "cost_price": cost_price,  # Себестоимость позиции (уже в рублях)
-        "article": str(position.get("assortment", {}).get("article", ""))[:100],
-        "code": str(position.get("assortment", {}).get("code", ""))[:100],
+        "cost_price": cost_price,  # Себестоимость позиции
+        "article": str(position.get("article", ""))[:100],
+        "code": str(position.get("code", ""))[:100],
         "overhead": overhead_share,
         "profit": amount - cost_price - overhead_share,
         "promo_period": "",
@@ -631,7 +598,7 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
         "estimated_discount": 0
     }
 
-    # Остальной код функции остается без изменений
+    # Обработка атрибутов
     attr_fields = {
         "promo_period": ("Акционный период", ""),
         "delivery_amount": ("Сумма доставки", 0),
@@ -904,7 +871,7 @@ async def create_positions_sheet(wb, cur, date_range):
             d.avito, 
             d.multiorders,
             d.estimated_discount,
-            (SELECT SUM(cost_price) FROM demand_positions WHERE demand_id = d.id) as total_cost_price
+            d.cost_price as total_cost_price
         FROM demand_positions dp
         JOIN demands d ON dp.demand_id = d.id
         WHERE d.date BETWEEN %s AND %s
@@ -1123,7 +1090,7 @@ async def create_summary_sheet(wb, cur, date_range):
             SUM(dp.amount) as total_amount,
             SUM(dp.cost_price) as total_cost_price,
             SUM(d.overhead * (dp.amount / NULLIF(d.amount, 0))) as overhead_share,
-            SUM(dp.amount - dp.cost_price - (d.overhead * (dp.amount / NULLIF(d.amount, 0)))) as total_profit,
+            SUM(dp.profit) as total_profit,
             CASE 
                 WHEN SUM(dp.amount) = 0 THEN 0 
                 ELSE (SUM(dp.amount) - SUM(dp.cost_price) - SUM(d.overhead * (dp.amount / NULLIF(d.amount, 0)))) / SUM(dp.amount) * 100 
@@ -1144,7 +1111,7 @@ async def create_summary_sheet(wb, cur, date_range):
         "Товар", "Артикул", "Код", "Общее количество", "Склад", "Проект", 
         "Канал продаж", "Средняя цена", "Сумма оплачиваемой доставки", 
         "Общая сумма", "Себестоимость товара", "Сумма накладных расходов", 
-        "Общая прибыль", "Маржинальность (%)"
+        "Общая прибыль", "Маржинальность"
     ]
     
     # Стили для Excel
