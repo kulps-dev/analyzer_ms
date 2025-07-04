@@ -293,5 +293,9 @@ class MoyskladAPI:
     def get_demand_by_id(self, demand_id: str) -> Dict[str, Any]:
         """Получает данные отгрузки по ID"""
         url = f"{self.base_url}/entity/demand/{demand_id}"
-        response = self._make_request("GET", url)
-        return response.json()
+        try:
+            response = self._make_request("GET", url)
+            return response.json()
+        except Exception as e:
+            logger.error(f"Ошибка при получении отгрузки {demand_id}: {str(e)}")
+            return None
