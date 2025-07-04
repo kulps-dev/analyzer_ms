@@ -881,7 +881,7 @@ async def create_positions_sheet(wb, cur, date_range):
             dp.quantity, 
             dp.price, 
             dp.amount, 
-            dp.cost_price,
+            dp.cost_price as position_cost_price,  # Себестоимость позиции
             dp.article, 
             dp.code,
             dp.overhead, 
@@ -904,7 +904,7 @@ async def create_positions_sheet(wb, cur, date_range):
             d.avito, 
             d.multiorders,
             d.estimated_discount,
-            d.cost_price as total_cost_price
+            (SELECT SUM(cost_price) FROM demand_positions WHERE demand_id = d.id) as total_cost_price  # Общая себестоимость по отгрузке
         FROM demand_positions dp
         JOIN demands d ON dp.demand_id = d.id
         WHERE d.date BETWEEN %s AND %s
@@ -1121,7 +1121,7 @@ async def create_summary_sheet(wb, cur, date_range):
             AVG(dp.price) as avg_price,
             SUM(d.delivery_amount * (dp.amount / NULLIF(d.amount, 0))) as delivery_share,
             SUM(dp.amount) as total_amount,
-            SUM(dp.cost_price) as total_cost_price,
+            SUM(dp.cost_price) as total_cost_price,  # Убедитесь, что это работает
             SUM(d.overhead * (dp.amount / NULLIF(d.amount, 0))) as overhead_share,
             SUM(dp.amount - dp.cost_price - (d.overhead * (dp.amount / NULLIF(d.amount, 0)))) as total_profit,
             CASE 
