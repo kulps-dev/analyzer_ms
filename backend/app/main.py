@@ -881,7 +881,7 @@ async def create_positions_sheet(wb, cur, date_range):
             dp.quantity, 
             dp.price, 
             dp.amount, 
-            dp.cost_price as position_cost_price,  # Себестоимость позиции
+            dp.cost_price,
             dp.article, 
             dp.code,
             dp.overhead, 
@@ -904,7 +904,7 @@ async def create_positions_sheet(wb, cur, date_range):
             d.avito, 
             d.multiorders,
             d.estimated_discount,
-            (SELECT SUM(cost_price) FROM demand_positions WHERE demand_id = d.id) as total_cost_price  # Общая себестоимость по отгрузке
+            (SELECT SUM(cost_price) FROM demand_positions WHERE demand_id = d.id) as total_cost_price
         FROM demand_positions dp
         JOIN demands d ON dp.demand_id = d.id
         WHERE d.date BETWEEN %s AND %s
