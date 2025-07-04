@@ -238,6 +238,7 @@ class MoyskladAPI:
     def _enrich_demand_data_batch(self, demands: List[Dict[str, Any]]):
         """Пакетное обогащение данных отгрузок"""
         try:
+            logger.info(f"Начало обогащения данных для {len(demands)} отгрузок")
             # Собираем все URL для пакетной обработки
             urls_to_fetch = {
                 'agents': set(),
