@@ -610,8 +610,8 @@ async def update_demand_data(demand_id: str):
         demand_values = prepare_demand_data(demand)
         await insert_demands_batch(cur, [demand_values])
         
-        # 4. Обрабатываем позиции
-        positions = demand.get("positions", [])
+        # 4. Обрабатываем позиции (получаем их отдельным запросом)
+        positions = moysklad.get_demand_positions(demand_id)
         if positions:
             positions_batch = []
             for position in positions:

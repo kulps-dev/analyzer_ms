@@ -137,11 +137,8 @@ class MoyskladAPI:
             positions = self.get_paginated_data(url)
             logger.info(f"Получено {len(positions)} позиций для отгрузки {demand_id}")
             
-            # Получаем себестоимости всех товаров
-            cost_data = self._get_positions_cost_data(demand_id)
-            
+            # Обогащаем данные о товарах
             for position in positions:
-                # Обогащаем данные о товарах
                 if "assortment" in position:
                     product_url = position["assortment"]["meta"]["href"]
                     try:
@@ -150,27 +147,17 @@ class MoyskladAPI:
                         position["product_name"] = product_data.get("name", "")
                         position["article"] = product_data.get("article", "")
                         position["code"] = product_data.get("code", "")
-                        
-                        # Получаем ID товара для поиска себестоимости
-                        product_id = product_url.split("/")[-1]
-                        if product_id in cost_data:
-                            position["cost_price"] = cost_data[product_id] / 100  # Переводим в рубли
-                        else:
-                            position["cost_price"] = 0.0
                     except Exception as e:
                         logger.warning(f"Ошибка при получении данных товара: {str(e)}")
                         position["product_name"] = ""
                         position["article"] = ""
                         position["code"] = ""
-                        position["cost_price"] = 0.0
-                else:
-                    position["cost_price"] = 0.0
-                
+            
             return positions
             
         except Exception as e:
             logger.error(f"Ошибка при получении позиций отгрузки {demand_id}: {str(e)}")
-            raise
+            return []
 
     def _get_positions_cost_data(self, demand_id: str) -> Dict[str, float]:
         """Получаем себестоимости всех позиций отгрузки"""
