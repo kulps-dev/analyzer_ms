@@ -130,30 +130,25 @@ class MoyskladAPI:
             raise
 
     def get_demand_positions(self, demand_id: str) -> List[Dict[str, Any]]:
-        """Получить позиции отгрузки с обогащенными данными о товарах"""
+    """Получает позиции отгрузки с себестоимостью"""
+    try:
         url = f"{self.base_url}/entity/demand/{demand_id}/positions"
+        response = requests.get(url, headers=self.headers)
+        response.raise_for_status()
         
-        try:
-            positions = self.get_paginated_data(url)
-            logger.info(f"Получено {len(positions)} позиций для отгрузки {demand_id}")
-            
-            # Обогащаем данные о товарах
-            for position in positions:
-                if "assortment" in position:
-                    product_url = position["assortment"]["meta"]["href"]
-                    try:
-                        response = self._make_request("GET", product_url)
-                        product_data = response.json()
-                        position["product_name"] = product_data.get("name", "")
-                        position["article"] = product_data.get("article", "")
-                        position["code"] = product_data.get("code", "")
-                    except Exception as e:
-                        logger.warning(f"Ошибка при получении данных товара: {str(e)}")
-                        position["product_name"] = ""
-                        position["article"] = ""
-                        position["code"] = ""
-            
-            return positions
+        positions = []
+        for item in response.json()["rows"]:
+            position = {
+                "id": item["id"],
+                "quantity": item["quantity"],
+                "price": item["price"],
+                "costPrice": item.get("costPrice", 0),  # Себестоимость в копейках
+                "assortment": item["assortment"],
+                # Другие необходимые поля
+            }
+            positions.append(position)
+        
+        return positions
             
         except Exception as e:
             logger.error(f"Ошибка при получении позиций отгрузки {demand_id}: {str(e)}")
