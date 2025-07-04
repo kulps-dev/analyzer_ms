@@ -460,7 +460,13 @@ def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
     demand_id = str(demand.get("id", ""))
     attributes = demand.get("attributes", [])
     
-    # Обработка накладных расходов (overhead)
+    # Получаем основные данные с проверкой на None
+    agent = demand.get("agent", {})
+    store = demand.get("store", {})
+    project = demand.get("project", {})
+    sales_channel = demand.get("salesChannel", {})
+    
+    # Обработка накладных расходов
     overhead_data = demand.get("overhead", {})
     overhead_sum = float(overhead_data.get("sum", 0)) / 100
     
@@ -469,15 +475,15 @@ def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
     demand_sum = float(demand.get("sum", 0)) / 100
     profit = demand_sum - cost_price - overhead_sum
     
-    # Основные данные
+    # Основные данные с более надежным извлечением
     values = {
         "id": demand_id[:255],
         "number": str(demand.get("name", ""))[:50],
         "date": demand.get("moment", ""),
-        "counterparty": str(demand.get("agent", {}).get("name", ""))[:255],
-        "store": str(demand.get("store", {}).get("name", ""))[:255],
-        "project": str(demand.get("project", {}).get("name", "Без проекта"))[:255],
-        "sales_channel": str(demand.get("salesChannel", {}).get("name", "Без канала"))[:255],
+        "counterparty": str(agent.get("name", ""))[:255] if agent else "",
+        "store": str(store.get("name", ""))[:255] if store else "",
+        "project": str(project.get("name", "Без проекта"))[:255] if project else "Без проекта",
+        "sales_channel": str(sales_channel.get("name", "Без канала"))[:255] if sales_channel else "Без канала",
         "amount": demand_sum,
         "cost_price": cost_price,
         "overhead": overhead_sum,
