@@ -467,11 +467,31 @@ def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
     logger.info(f"Данные project: {demand.get('project', {})}")
     logger.info(f"Данные salesChannel: {demand.get('salesChannel', {})}")
     
-    # Получаем основные данные с проверкой на None
-    agent = demand.get("agent", {})
-    store = demand.get("store", {})
-    project = demand.get("project", {})
-    sales_channel = demand.get("salesChannel", {})
+    # Функция для безопасного получения имени из метаданных
+    def get_name_from_meta(meta_data: Dict[str, Any]) -> str:
+        if not meta_data:
+            return ""
+        
+        # Если имя уже есть в данных, возвращаем его
+        if 'name' in meta_data:
+            return str(meta_data['name'])
+        
+        # Если есть ссылка, делаем запрос к API
+        if 'href' in meta_data.get('meta', {}):
+            try:
+                entity = moysklad.get_entity_by_href(meta_data['meta']['href'])
+                return str(entity.get('name', ''))
+            except Exception as e:
+                logger.error(f"Ошибка при получении имени по ссылке {meta_data['meta']['href']}: {str(e)}")
+                return ""
+        
+        return ""
+
+    # Получаем основные данные
+    agent = get_name_from_meta(demand.get("agent", {}))
+    store = get_name_from_meta(demand.get("store", {}))
+    project = get_name_from_meta(demand.get("project", {}))
+    sales_channel = get_name_from_meta(demand.get("salesChannel", {}))
     
     # Обработка накладных расходов
     overhead_data = demand.get("overhead", {})
@@ -482,15 +502,15 @@ def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
     demand_sum = float(demand.get("sum", 0)) / 100
     profit = demand_sum - cost_price - overhead_sum
     
-    # Основные данные с более надежным извлечением
+    # Основные данные
     values = {
         "id": demand_id[:255],
         "number": str(demand.get("name", ""))[:50],
         "date": demand.get("moment", ""),
-        "counterparty": str(agent.get("name", ""))[:255] if agent else "",
-        "store": str(store.get("name", ""))[:255] if store else "",
-        "project": str(project.get("name", "Без проекта"))[:255] if project else "Без проекта",
-        "sales_channel": str(sales_channel.get("name", "Без канала"))[:255] if sales_channel else "Без канала",
+        "counterparty": agent[:255] if agent else "",
+        "store": store[:255] if store else "",
+        "project": project[:255] if project else "Без проекта",
+        "sales_channel": sales_channel[:255] if sales_channel else "Без канала",
         "amount": demand_sum,
         "cost_price": cost_price,
         "overhead": overhead_sum,
@@ -517,7 +537,7 @@ def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
         "estimated_discount": 0
     }
 
-    # Обработка атрибутов
+    # Остальной код функции остается без изменений
     attr_fields = {
         "promo_period": ("Акционный период", ""),
         "delivery_amount": ("Сумма доставки", 0),

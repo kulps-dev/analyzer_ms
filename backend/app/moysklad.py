@@ -300,3 +300,17 @@ class MoyskladAPI:
         except Exception as e:
             logger.error(f"Ошибка при получении отгрузки {demand_id}: {str(e)}")
             return None
+
+    def get_entity_by_href(self, href: str) -> Dict[str, Any]:
+        """Получает сущность по ссылке из метаданных"""
+        try:
+            response = requests.get(
+                href,
+                headers=self.headers,
+                timeout=10
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Ошибка при получении сущности по ссылке {href}: {str(e)}")
+            return {}
