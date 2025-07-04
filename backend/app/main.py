@@ -24,6 +24,8 @@ import json
 from fastapi import Response
 from fastapi.responses import StreamingResponse
 from urllib.parse import quote
+from fastapi import Request
+from typing import Dict, Any
 
 
 # Настройка логгера
@@ -61,6 +63,10 @@ class BatchProcessResponse(BaseModel):
     task_id: str
     status: str
     message: str
+
+class WebhookData(BaseModel):
+    events: List[Dict[str, Any]]
+    updated: str
 
 # Глобальный словарь для хранения статусов задач
 tasks_status = {}
@@ -2152,3 +2158,80 @@ async def export_to_gsheet(date_range: DateRange):
             status_code=500,
             content={"detail": f"Ошибка при создании таблицы: {str(e)}"}
         )
+
+@app.post("/api/webhook")
+async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
+    """Обработчик вебхуков от МойСклад"""
+    try:
+        # Получаем данные вебхука
+        data = await request.json()
+        webhook_data = WebhookData(**data)
+        
+        logger.info(f"Получен вебхук: {webhook_data.updated}")
+        
+        # Обрабатываем каждое событие
+        for event in webhook_data.events:
+            meta = event.get("meta")
+            if not meta:
+                continue
+                
+            # Проверяем, что это событие изменения отгрузки
+            if meta.get("type") == "demand":
+                demand_id = meta.get("href").split("/")[-1]
+                logger.info(f"Обнаружено изменение отгрузки: {demand_id}")
+                
+                # Запускаем фоновую задачу для обновления данных
+                background_tasks.add_task(update_demand_data, demand_id)
+        
+        return {"status": "success", "message": "Webhook processed"}
+    
+    except Exception as e:
+        logger.error(f"Ошибка обработки вебхука: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+async def update_demand_data(demand_id: str):
+    """Обновляет данные отгрузки в базе"""
+    conn = None
+    try:
+        logger.info(f"Начало обновления отгрузки {demand_id}")
+        
+        # Получаем соединение с базой
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # 1. Удаляем старые данные отгрузки и позиций
+        cur.execute("DELETE FROM demand_positions WHERE demand_id = %s", (demand_id,))
+        cur.execute("DELETE FROM demands WHERE id = %s", (demand_id,))
+        conn.commit()
+        logger.info(f"Старые данные отгрузки {demand_id} удалены")
+        
+        # 2. Получаем обновленные данные отгрузки
+        demand = moysklad.get_demand_by_id(demand_id)
+        if not demand:
+            logger.warning(f"Отгрузка {demand_id} не найдена в МойСклад")
+            return
+            
+        # 3. Подготавливаем и сохраняем новые данные
+        demand_values = prepare_demand_data(demand)
+        await insert_demands_batch(cur, [demand_values])
+        
+        # 4. Обрабатываем позиции
+        positions = demand.get("positions", [])
+        if positions:
+            positions_batch = []
+            for position in positions:
+                position_values = prepare_position_data(demand, position)
+                positions_batch.append(position_values)
+            
+            await insert_positions_batch(cur, positions_batch)
+        
+        conn.commit()
+        logger.info(f"Отгрузка {demand_id} успешно обновлена. Позиций: {len(positions)}")
+        
+    except Exception as e:
+        logger.error(f"Ошибка при обновлении отгрузки {demand_id}: {str(e)}")
+        if conn:
+            conn.rollback()
+    finally:
+        if conn:
+            conn.close()
