@@ -459,6 +459,13 @@ def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
     """Подготовка данных отгрузки для вставки в БД"""
     demand_id = str(demand.get("id", ""))
     attributes = demand.get("attributes", [])
+
+    # Логирование для отладки
+    logger.info(f"Обработка отгрузки ID: {demand_id}")
+    logger.info(f"Данные agent: {demand.get('agent', {})}")
+    logger.info(f"Данные store: {demand.get('store', {})}")
+    logger.info(f"Данные project: {demand.get('project', {})}")
+    logger.info(f"Данные salesChannel: {demand.get('salesChannel', {})}")
     
     # Получаем основные данные с проверкой на None
     agent = demand.get("agent", {})
@@ -486,7 +493,7 @@ def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
         "sales_channel": str(sales_channel.get("name", "Без канала"))[:255] if sales_channel else "Без канала",
         "amount": demand_sum,
         "cost_price": cost_price,
-        "overhead": overhead_sum,
+        "overhead": overhead_sum,а
         "profit": profit,
         "status": str(demand.get("state", {}).get("name", ""))[:100],
         "comment": str(demand.get("description", ""))[:255],
