@@ -25,7 +25,8 @@ from fastapi import Response
 from fastapi.responses import StreamingResponse
 from urllib.parse import quote
 from fastapi import Request
-from typing import Dict, Any
+from pydantic import BaseModel, Field
+from typing import Optional, List, Dict, Any
 
 
 # Настройка логгера
@@ -64,9 +65,23 @@ class BatchProcessResponse(BaseModel):
     status: str
     message: str
 
+class WebhookEventMeta(BaseModel):
+    href: str
+    type: str
+    mediaType: str
+
+class WebhookEvent(BaseModel):
+    meta: WebhookEventMeta
+    action: str
+
+class WebhookAuditContext(BaseModel):
+    meta: Dict[str, Any]
+    uid: str
+
 class WebhookData(BaseModel):
-    events: List[Dict[str, Any]]
-    updated: str
+    events: List[WebhookEvent]
+    auditContext: Dict[str, Any]
+    updated: Optional[str] = Field(None)  # Делаем поле необязательным
 
 # Глобальный словарь для хранения статусов задач
 tasks_status = {}
@@ -2163,22 +2178,37 @@ async def export_to_gsheet(date_range: DateRange):
 async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
     """Обработчик вебхуков от МойСклад"""
     try:
-        # Получаем данные вебхука
-        data = await request.json()
-        webhook_data = WebhookData(**data)
+        # Получаем и логируем сырые данные вебхука для отладки
+        raw_data = await request.json()
+        logger.info(f"Получен вебхук: {raw_data}")
         
-        logger.info(f"Получен вебхук: {webhook_data.updated}")
+        # Парсим данные с более гибкой валидацией
+        try:
+            webhook_data = WebhookData(**raw_data)
+        except Exception as e:
+            logger.error(f"Ошибка валидации вебхука: {str(e)}. Данные: {raw_data}")
+            # Попробуем обработать даже если валидация не прошла полностью
+            if not isinstance(raw_data, dict) or 'events' not in raw_data:
+                raise HTTPException(status_code=400, detail="Invalid webhook format")
+            
+            # Создаем объект вручную
+            webhook_data = WebhookData(
+                events=raw_data.get('events', []),
+                auditContext=raw_data.get('auditContext', {}),
+                updated=raw_data.get('updated')
+            )
+        
+        logger.info(f"Обработка вебхука. Событий: {len(webhook_data.events)}")
         
         # Обрабатываем каждое событие
         for event in webhook_data.events:
-            meta = event.get("meta")
-            if not meta:
-                continue
-                
-            # Проверяем, что это событие изменения отгрузки
-            if meta.get("type") == "demand":
-                demand_id = meta.get("href").split("/")[-1]
-                logger.info(f"Обнаружено изменение отгрузки: {demand_id}")
+            meta = event.meta
+            action = event.action
+            
+            # Нас интересуют только события обновления отгрузок
+            if meta.type == "demand" and action in ["UPDATE", "CREATE"]:
+                demand_id = meta.href.split("/")[-1]
+                logger.info(f"Обнаружено изменение отгрузки (action={action}): {demand_id}")
                 
                 # Запускаем фоновую задачу для обновления данных
                 background_tasks.add_task(update_demand_data, demand_id)
@@ -2186,52 +2216,5 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
         return {"status": "success", "message": "Webhook processed"}
     
     except Exception as e:
-        logger.error(f"Ошибка обработки вебхука: {str(e)}")
+        logger.error(f"Ошибка обработки вебхука: {str(e)}", exc_info=True)
         raise HTTPException(status_code=400, detail=str(e))
-
-async def update_demand_data(demand_id: str):
-    """Обновляет данные отгрузки в базе"""
-    conn = None
-    try:
-        logger.info(f"Начало обновления отгрузки {demand_id}")
-        
-        # Получаем соединение с базой
-        conn = get_db_connection()
-        cur = conn.cursor()
-        
-        # 1. Удаляем старые данные отгрузки и позиций
-        cur.execute("DELETE FROM demand_positions WHERE demand_id = %s", (demand_id,))
-        cur.execute("DELETE FROM demands WHERE id = %s", (demand_id,))
-        conn.commit()
-        logger.info(f"Старые данные отгрузки {demand_id} удалены")
-        
-        # 2. Получаем обновленные данные отгрузки
-        demand = moysklad.get_demand_by_id(demand_id)
-        if not demand:
-            logger.warning(f"Отгрузка {demand_id} не найдена в МойСклад")
-            return
-            
-        # 3. Подготавливаем и сохраняем новые данные
-        demand_values = prepare_demand_data(demand)
-        await insert_demands_batch(cur, [demand_values])
-        
-        # 4. Обрабатываем позиции
-        positions = demand.get("positions", [])
-        if positions:
-            positions_batch = []
-            for position in positions:
-                position_values = prepare_position_data(demand, position)
-                positions_batch.append(position_values)
-            
-            await insert_positions_batch(cur, positions_batch)
-        
-        conn.commit()
-        logger.info(f"Отгрузка {demand_id} успешно обновлена. Позиций: {len(positions)}")
-        
-    except Exception as e:
-        logger.error(f"Ошибка при обновлении отгрузки {demand_id}: {str(e)}")
-        if conn:
-            conn.rollback()
-    finally:
-        if conn:
-            conn.close()
