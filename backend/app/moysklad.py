@@ -137,7 +137,7 @@ class MoyskladAPI:
             positions = self.get_paginated_data(url)
             logger.info(f"Получено {len(positions)} позиций для отгрузки {demand_id}")
             
-            # Обогащаем данные о товарах
+            # Обогащаем данные о товарах и получаем себестоимость
             for position in positions:
                 if "assortment" in position:
                     product_url = position["assortment"]["meta"]["href"]
@@ -147,12 +147,16 @@ class MoyskladAPI:
                         position["product_name"] = product_data.get("name", "")
                         position["article"] = product_data.get("article", "")
                         position["code"] = product_data.get("code", "")
+                        
+                        # Добавляем себестоимость (в копейках)
+                        position["cost_price"] = float(product_data.get("costPrice", {}).get("value", 0))
                     except Exception as e:
                         logger.warning(f"Ошибка при получении данных товара: {str(e)}")
                         position["product_name"] = ""
                         position["article"] = ""
                         position["code"] = ""
-            
+                        position["cost_price"] = 0
+                
             return positions
         
         except Exception as e:

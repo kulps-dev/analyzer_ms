@@ -577,7 +577,7 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
     attributes = demand.get("attributes", [])
     
     # Получаем себестоимость позиции (в копейках, переводим в рубли)
-    cost_price = float(position.get("costPrice", 0)) / 100  # Конвертируем из копеек в рубли
+    cost_price = float(position.get("cost_price", 0)) / 100
     
     # Количество и цена
     quantity = float(position.get("quantity", 0))
