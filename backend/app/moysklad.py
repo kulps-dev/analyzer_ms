@@ -302,3 +302,9 @@ class MoyskladAPI:
 
         except Exception as e:
             logger.error(f"Ошибка при пакетном обогащении данных: {str(e)}")
+    
+    def get_demand_by_id(self, demand_id: str) -> Dict[str, Any]:
+    """Получает данные отгрузки по ID"""
+    url = f"{self.base_url}/entity/demand/{demand_id}"
+    response = self._make_request("GET", url)
+    return response.json()

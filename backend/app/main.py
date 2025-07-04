@@ -27,6 +27,7 @@ from urllib.parse import quote
 from fastapi import Request
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
+from fastapi import Request
 
 
 # Настройка логгера
@@ -68,22 +69,17 @@ class BatchProcessResponse(BaseModel):
 class WebhookEventMeta(BaseModel):
     href: str
     type: str
-    mediaType: Optional[str] = None  # Делаем поле необязательным
+    mediaType: Optional[str] = None
 
 class WebhookEvent(BaseModel):
     meta: WebhookEventMeta
     action: str
     accountId: Optional[str] = None
 
-class WebhookAuditContext(BaseModel):
-    meta: Dict[str, Any]
-    uid: str
-    moment: str
-
 class WebhookData(BaseModel):
     events: List[WebhookEvent]
     auditContext: Dict[str, Any]
-    updated: Optional[str] = None  # Делаем поле необязательным
+    updated: Optional[str] = None
 
 # Глобальный словарь для хранения статусов задач
 tasks_status = {}
@@ -587,6 +583,53 @@ def prepare_position_data(demand: Dict[str, Any], position: Dict[str, Any]) -> D
             values[field] = str(get_attr_value(attributes, attr_name, default))[:255]
     
     return values
+
+async def update_demand_data(demand_id: str):
+    """Обновляет данные отгрузки в базе"""
+    conn = None
+    try:
+        logger.info(f"Начало обновления отгрузки {demand_id}")
+        
+        # Получаем соединение с базой
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # 1. Удаляем старые данные отгрузки и позиций
+        cur.execute("DELETE FROM demand_positions WHERE demand_id = %s", (demand_id,))
+        cur.execute("DELETE FROM demands WHERE id = %s", (demand_id,))
+        conn.commit()
+        logger.info(f"Старые данные отгрузки {demand_id} удалены")
+        
+        # 2. Получаем обновленные данные отгрузки
+        demand = moysklad.get_demand_by_id(demand_id)
+        if not demand:
+            logger.warning(f"Отгрузка {demand_id} не найдена в МойСклад")
+            return
+            
+        # 3. Подготавливаем и сохраняем новые данные
+        demand_values = prepare_demand_data(demand)
+        await insert_demands_batch(cur, [demand_values])
+        
+        # 4. Обрабатываем позиции
+        positions = demand.get("positions", [])
+        if positions:
+            positions_batch = []
+            for position in positions:
+                position_values = prepare_position_data(demand, position)
+                positions_batch.append(position_values)
+            
+            await insert_positions_batch(cur, positions_batch)
+        
+        conn.commit()
+        logger.info(f"Отгрузка {demand_id} успешно обновлена. Позиций: {len(positions)}")
+        
+    except Exception as e:
+        logger.error(f"Ошибка при обновлении отгрузки {demand_id}: {str(e)}", exc_info=True)
+        if conn:
+            conn.rollback()
+    finally:
+        if conn:
+            conn.close()
 
 def get_attr_value(attrs, attr_name, default=""):
     """Безопасное извлечение атрибутов"""
