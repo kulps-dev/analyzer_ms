@@ -73,8 +73,9 @@ class WebhookEventMeta(BaseModel):
 
 class WebhookEvent(BaseModel):
     meta: WebhookEventMeta
-    action: str
-    accountId: Optional[str] = None
+    action: str  # CREATE или UPDATE
+    accountId: str
+    entityType: Optional[str] = None  # Добавляем для вебхука создания
 
 class WebhookData(BaseModel):
     events: List[WebhookEvent]
@@ -407,6 +408,52 @@ async def insert_positions_batch(cur, batch_values: List[Dict[str, Any]]) -> int
     except Exception as e:
         logger.error(f"Ошибка при массовой вставке позиций: {str(e)}")
         return 0
+
+async def process_demand(demand_id: str, action: str):
+    """Обрабатывает создание или обновление отгрузки"""
+    try:
+        logger.info(f"Обработка отгрузки {demand_id} (действие: {action})")
+        
+        # Получаем данные отгрузки
+        demand = moysklad.get_demand_by_id(demand_id)
+        if not demand:
+            logger.warning(f"Отгрузка {demand_id} не найдена в МойСклад")
+            return
+        
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            
+            # Для обновления - сначала удаляем старые данные
+            if action == "UPDATE":
+                cur.execute("DELETE FROM demand_positions WHERE demand_id = %s", (demand_id,))
+                cur.execute("DELETE FROM demands WHERE id = %s", (demand_id,))
+                logger.info(f"Старые данные отгрузки {demand_id} удалены")
+            
+            # Подготавливаем и сохраняем данные отгрузки
+            demand_values = prepare_demand_data(demand)
+            await insert_demands_batch(cur, [demand_values])
+            
+            # Обрабатываем позиции
+            positions = moysklad.get_demand_positions(demand_id)
+            if positions:
+                positions_batch = []
+                for position in positions:
+                    position_values = prepare_position_data(demand, position)
+                    positions_batch.append(position_values)
+                
+                await insert_positions_batch(cur, positions_batch)
+            
+            conn.commit()
+            logger.info(f"Отгрузка {demand_id} успешно {'создана' if action == 'CREATE' else 'обновлена'}. Позиций: {len(positions)}")
+            
+        finally:
+            conn.close()
+            
+    except Exception as e:
+        logger.error(f"Ошибка при обработке отгрузки {demand_id}: {str(e)}", exc_info=True)
+        if conn:
+            conn.rollback()
 
 def prepare_demand_data(demand: Dict[str, Any]) -> Dict[str, Any]:
     """Подготовка данных отгрузки для вставки в БД"""
@@ -2221,7 +2268,7 @@ async def export_to_gsheet(date_range: DateRange):
 
 @app.post("/api/webhook")
 async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
-    """Обработчик вебхуков от МойСклад"""
+    """Обработчик вебхуков от МойСклад (создание и обновление отгрузок)"""
     try:
         # Получаем и логируем сырые данные вебхука
         raw_data = await request.json()
@@ -2243,7 +2290,8 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
                             mediaType=event['meta'].get('mediaType')
                         ),
                         action=event['action'],
-                        accountId=event.get('accountId')
+                        accountId=event.get('accountId'),
+                        entityType=event.get('entityType')
                     ))
                 except KeyError as ke:
                     logger.error(f"Ошибка парсинга события: {str(ke)}")
@@ -2262,13 +2310,13 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
             meta = event.meta
             action = event.action
             
-            # Нас интересуют только события обновления отгрузок
-            if meta.type == "demand" and action in ["UPDATE", "CREATE"]:
+            # Нас интересуют события создания и обновления отгрузок
+            if meta.type == "demand" or (event.entityType == "demand" and action == "CREATE"):
                 demand_id = meta.href.split("/")[-1]
                 logger.info(f"Обнаружено изменение отгрузки (action={action}): {demand_id}")
                 
-                # Запускаем фоновую задачу для обновления данных
-                background_tasks.add_task(update_demand_data, demand_id)
+                # Запускаем фоновую задачу для обновления/добавления данных
+                background_tasks.add_task(process_demand, demand_id, action)
         
         return {"status": "success", "message": "Webhook processed"}
     
